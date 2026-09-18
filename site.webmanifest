@@ -1,0 +1,9 @@
+{
+  "name": "FontFX Studio",
+  "short_name": "FontFX",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f5f5f8",
+  "theme_color": "#7669d8",
+  "description": "웹폰트와 로컬 폰트를 글자별로 편집하고 그라데이션·다중 획·입체 효과를 적용해 투명 PNG로 추출하는 디자인 툴"
+}

@@ -1,0 +1,13 @@
+FontFX Studio v1.2.0 Web Deploy
+
+[GitHub Pages]
+이 폴더의 내용 전체를 GitHub 저장소의 최상단(root)에 업로드하세요.
+그 다음 Settings > Pages > Source > GitHub Actions 로 설정하세요.
+
+[Cloudflare Pages]
+GitHub 저장소를 연결한 뒤 아래 값을 사용하세요.
+Build command: bash scripts/build.sh
+Build output directory: dist
+Framework preset: None
+
+자세한 내용: DEPLOY_GUIDE_KO.md
