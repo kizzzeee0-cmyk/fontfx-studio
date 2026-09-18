@@ -50,12 +50,15 @@
     groupMove: true,
     groupEffectEdit: true,
     styleClipboard: null,
+    effectPresets: { strokes: [], shadows: [] },
     history: [],
     historyIndex: -1,
     suppressHistory: false
   };
 
   const surfaceCache = new Map();
+  const groupEffectCache = new Map();
+  const EFFECT_PRESET_STORAGE_KEY = 'fontfx.effectPresets.v1';
   let toastTimer = null;
   let historyTimer = null;
 
@@ -73,6 +76,68 @@
   function applyStyleSnapshot(ch,snap){ if(!ch||!snap)return; ch.fontFamily=snap.fontFamily; ch.fontSize=snap.fontSize; ch.fontWeight=snap.fontWeight; ch.fill=snap.fill; ch.fillMode=snap.fillMode||'solid'; ch.gradient=deepClone(snap.gradient||defaultGradient(snap.fill)); ch.scale=snap.scale||1; ch.scaleX=snap.scaleX||1; ch.scaleY=snap.scaleY||1; ch.skewX=snap.skewX||0; ch.skewY=snap.skewY||0; ch.strokes=deepClone(snap.strokes||[]); ch.innerShadows=deepClone(snap.innerShadows||[]); markDirty(ch); }
   function markDirty(ch){ if(ch) ch.cacheVersion = (ch.cacheVersion || 0) + 1; }
   function markManyDirty(chars){ chars.forEach(markDirty); }
+  function clearRuntimeCaches(){ surfaceCache.clear(); groupEffectCache.clear(); }
+  function cacheMapSet(map,key,value,max=120){ map.set(key,value); if(map.size>max){ const first=map.keys().next().value; map.delete(first); } return value; }
+  function normalizeEffectPresetLibrary(value){
+    const v=value&&typeof value==='object'?value:{};
+    return {strokes:Array.isArray(v.strokes)?v.strokes:[],shadows:Array.isArray(v.shadows)?v.shadows:[]};
+  }
+  function loadEffectPresets(){
+    try{state.effectPresets=normalizeEffectPresetLibrary(JSON.parse(localStorage.getItem(EFFECT_PRESET_STORAGE_KEY)||'{}'));}
+    catch(_){state.effectPresets={strokes:[],shadows:[]};}
+  }
+  function persistEffectPresets(){
+    try{localStorage.setItem(EFFECT_PRESET_STORAGE_KEY,JSON.stringify(state.effectPresets));}
+    catch(_){toast('브라우저 저장공간에 프리셋을 저장하지 못했습니다.');}
+  }
+  function effectPresetBucket(type){return type==='stroke'?state.effectPresets.strokes:state.effectPresets.shadows;}
+  function effectArrayOf(target,type){return type==='stroke'?(target.strokes||[]):(target.innerShadows||[]);}
+  function effectPresetSource(type){
+    const scope=currentEffectScope(); if(!scope)return null;
+    if(scope.type==='group')return scope.group;
+    return activeChar();
+  }
+  function stripEffectIds(items){return deepClone(items||[]).map(item=>{delete item.id;return item;});}
+  function instantiateEffectPreset(type,items){return (items||[]).map(item=>({...deepClone(item),id:uid(type==='stroke'?'stroke':'shadow')}));}
+  function mergeEffectPresets(incoming){
+    const inc=normalizeEffectPresetLibrary(incoming);
+    for(const key of ['strokes','shadows']){
+      for(const preset of inc[key]){
+        if(!preset||!preset.name||!Array.isArray(preset.items))continue;
+        const bucket=state.effectPresets[key], existing=bucket.find(x=>x.id===preset.id||String(x.name).toLowerCase()===String(preset.name).toLowerCase());
+        if(existing)Object.assign(existing,deepClone(preset)); else bucket.push(deepClone(preset));
+      }
+    }
+    persistEffectPresets();renderAllEffectPresetControls();
+  }
+  function renderEffectPresetControls(type){
+    const isStroke=type==='stroke', select=$(isStroke?'strokePresetSelect':'shadowPresetSelect'); if(!select)return;
+    const previous=select.value, bucket=effectPresetBucket(type); select.innerHTML='';
+    const empty=document.createElement('option');empty.value='';empty.textContent=bucket.length?(isStroke?'획 프리셋 선택':'그림자 프리셋 선택'):(isStroke?'저장된 획 프리셋 없음':'저장된 그림자 프리셋 없음');select.appendChild(empty);
+    bucket.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ko')).forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=`${p.name} · ${p.items.length}개`;select.appendChild(o);});
+    if([...select.options].some(o=>o.value===previous))select.value=previous;
+  }
+  function renderAllEffectPresetControls(){renderEffectPresetControls('stroke');renderEffectPresetControls('shadow');}
+  function saveEffectPreset(type){
+    const isStroke=type==='stroke', source=effectPresetSource(type); if(!source){toast('먼저 글자 또는 그룹을 선택하세요.');return;}
+    const items=effectArrayOf(source,type); if(!items.length){toast(isStroke?'저장할 획이 없습니다.':'저장할 내부 그림자가 없습니다.');return;}
+    const input=$(isStroke?'strokePresetName':'shadowPresetName'), name=String(input.value||'').trim(); if(!name){toast('프리셋 이름을 입력하세요.');input.focus();return;}
+    const bucket=effectPresetBucket(type), existing=bucket.find(p=>String(p.name).toLowerCase()===name.toLowerCase());
+    const data={id:existing?.id||uid(isStroke?'strokePreset':'shadowPreset'),name,items:stripEffectIds(items),updatedAt:new Date().toISOString()};
+    if(existing)Object.assign(existing,data);else bucket.push(data);
+    persistEffectPresets();renderEffectPresetControls(type);$(isStroke?'strokePresetSelect':'shadowPresetSelect').value=data.id;toast(`“${name}” ${isStroke?'획':'내부 그림자'} 프리셋을 ${existing?'덮어썼습니다':'저장했습니다'}.`);
+  }
+  function applyEffectPreset(type){
+    const isStroke=type==='stroke', select=$(isStroke?'strokePresetSelect':'shadowPresetSelect'), preset=effectPresetBucket(type).find(p=>p.id===select.value); if(!preset){toast('적용할 프리셋을 선택하세요.');return;}
+    const scope=currentEffectScope();if(!scope){toast('먼저 글자 또는 그룹을 선택하세요.');return;}
+    const base=instantiateEffectPreset(type,preset.items), prop=isStroke?'strokes':'innerShadows';
+    if(scope.type==='group'){scope.group[prop]=deepClone(base);}else{scope.chars.forEach(ch=>{ch[prop]=deepClone(base);markDirty(ch);});}
+    clearRuntimeCaches();updateInspector();render();pushHistory();toast(`“${preset.name}” 프리셋을 적용했습니다.`);
+  }
+  function deleteEffectPreset(type){
+    const isStroke=type==='stroke', select=$(isStroke?'strokePresetSelect':'shadowPresetSelect'), bucket=effectPresetBucket(type), ix=bucket.findIndex(p=>p.id===select.value); if(ix<0){toast('삭제할 프리셋을 선택하세요.');return;}
+    const name=bucket[ix].name;bucket.splice(ix,1);persistEffectPresets();renderEffectPresetControls(type);toast(`“${name}” 프리셋을 삭제했습니다.`);
+  }
   function toast(msg){
     const el = $('toast'); el.textContent = msg; el.classList.add('show');
     clearTimeout(toastTimer); toastTimer = setTimeout(()=>el.classList.remove('show'),2200);
@@ -299,21 +364,47 @@
     canvas.style.width=cssW+'px';canvas.style.height=cssH+'px';shell.style.width=cssW+'px';shell.style.height=cssH+'px';
     canvas.width=Math.max(1,Math.round(cssW*DPR));canvas.height=Math.max(1,Math.round(cssH*DPR)); render();
   }
-  function renderGlyphSurface(ch,q=1.4){
-    const m=measureChar(ch), pad=Math.max(10,m.pad*.55), logicalW=Math.ceil(m.width+pad*2+4), logicalH=Math.ceil(m.height+pad*2+4);
+  function renderGlyphSurface(ch,q=1.2){
+    const key=`glyph|${ch.id}|${ch.text}|${ch.fontFamily}|${ch.fontSize}|${ch.fontWeight||700}|${q.toFixed(2)}`;
+    if(surfaceCache.has(key)) return surfaceCache.get(key);
+    const m=measureChar(ch), pad=Math.max(8,m.pad*.45), logicalW=Math.ceil(m.width+pad*2+4), logicalH=Math.ceil(m.height+pad*2+4);
     const c=document.createElement('canvas'); c.width=Math.max(1,Math.ceil(logicalW*q)); c.height=Math.max(1,Math.ceil(logicalH*q));
     const g=c.getContext('2d'); g.scale(q,q); g.font=fontCss(ch); g.textAlign='center'; g.textBaseline='middle'; g.fillStyle='#fff'; g.fillText(ch.text,logicalW/2,logicalH/2);
-    return {canvas:c,logicalW,logicalH};
+    return cacheMapSet(surfaceCache,key,{canvas:c,logicalW,logicalH},180);
   }
-  function buildGroupMask(groupId,q=1.2){
-    const mask=document.createElement('canvas'); mask.width=Math.max(1,Math.ceil(state.project.width*q)); mask.height=Math.max(1,Math.ceil(state.project.height*q));
-    const g=mask.getContext('2d'); g.scale(q,q);
-    for(const ch of groupMembers(groupId)){ if(!ch||ch.visible===false) continue; const surf=renderGlyphSurface(ch,Math.min(2.5,q*1.3)); g.save(); applyCharTransform(g,ch); g.drawImage(surf.canvas,-surf.logicalW/2,-surf.logicalH/2,surf.logicalW,surf.logicalH); g.restore(); }
+  function groupEffectSpread(group){
+    const strokes=(group.strokes||[]).filter(s=>s.enabled!==false); const shadows=(group.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0);
+    const strokeSpread=Math.max(0,...strokes.map(s=>Number(s.width)||0));
+    const shadowSpread=Math.max(0,...shadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.size)||0)*2+8));
+    return Math.ceil(Math.max(8,strokeSpread+4,shadowSpread));
+  }
+  function groupVisualRect(ch, surf){
+    const hw=surf.logicalW/2, hh=surf.logicalH/2;
+    const pts=[worldPoint(ch,-hw,-hh),worldPoint(ch,hw,-hh),worldPoint(ch,hw,hh),worldPoint(ch,-hw,hh)];
+    const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y);
+    return {minX:Math.min(...xs), maxX:Math.max(...xs), minY:Math.min(...ys), maxY:Math.max(...ys)};
+  }
+  function computeGroupLayout(group, q=1.1){
+    const members=groupMembers(group.id).filter(ch=>ch&&ch.visible!==false);
+    if(!members.length) return null;
+    const entries=[]; let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    for(const ch of members){
+      const surf=renderGlyphSurface(ch,Math.min(1.8,q*1.25)); const rect=groupVisualRect(ch,surf); minX=Math.min(minX,rect.minX); minY=Math.min(minY,rect.minY); maxX=Math.max(maxX,rect.maxX); maxY=Math.max(maxY,rect.maxY); entries.push({ch,surf});
+    }
+    const spread=groupEffectSpread(group); const x=Math.floor(minX-spread), y=Math.floor(minY-spread), w=Math.max(1,Math.ceil(maxX-minX+spread*2)), h=Math.max(1,Math.ceil(maxY-minY+spread*2));
+    const layoutEntries=entries.map(({ch,surf})=>({ch,surf,localX:ch.x-x,localY:ch.y-y}));
+    const memberSig=layoutEntries.map(({ch,localX,localY})=>`${ch.id}:${ch.cacheVersion||0}:${localX.toFixed(2)}:${localY.toFixed(2)}:${(ch.angle||0).toFixed(2)}:${(ch.scale||1).toFixed(3)}:${(ch.scaleX||1).toFixed(3)}:${(ch.scaleY||1).toFixed(3)}:${(ch.skewX||0).toFixed(2)}:${(ch.skewY||0).toFixed(2)}:${ch.visible===false?0:1}`).join('|');
+    return {x,y,w,h,q,spread,entries:layoutEntries,memberSig};
+  }
+  function buildGroupMaskFromLayout(layout){
+    const mask=document.createElement('canvas'); mask.width=Math.max(1,Math.ceil(layout.w*layout.q)); mask.height=Math.max(1,Math.ceil(layout.h*layout.q));
+    const g=mask.getContext('2d'); g.scale(layout.q,layout.q);
+    for(const {ch,surf,localX,localY} of layout.entries){ g.save(); g.translate(localX,localY); g.rotate((ch.angle||0)*Math.PI/180); const kx=Math.tan((ch.skewX||0)*Math.PI/180), ky=Math.tan((ch.skewY||0)*Math.PI/180); g.transform(1,ky,kx,1,0,0); g.scale((ch.scale||1)*(ch.scaleX||1),(ch.scale||1)*(ch.scaleY||1)); g.drawImage(surf.canvas,-surf.logicalW/2,-surf.logicalH/2,surf.logicalW,surf.logicalH); g.restore(); }
     return mask;
   }
   function dilatedMask(maskCanvas,width,color,opacity,position='outside'){
     const layer=document.createElement('canvas'); layer.width=maskCanvas.width; layer.height=maskCanvas.height; const g=layer.getContext('2d');
-    const steps=Math.max(12,Math.round(width*5)); const rings=Math.max(1,Math.ceil(width));
+    const scaledWidth=Math.max(.1,width); const steps=Math.max(10,Math.round(scaledWidth*4)); const rings=Math.max(1,Math.ceil(scaledWidth));
     for(let r=1;r<=rings;r++){ const rad=r; for(let i=0;i<steps;i++){ const t=i/steps*Math.PI*2, dx=Math.cos(t)*rad, dy=Math.sin(t)*rad; g.drawImage(maskCanvas,dx,dy); } }
     g.globalCompositeOperation='source-in'; g.fillStyle=color; g.globalAlpha=clamp(opacity/100,0,1); g.fillRect(0,0,layer.width,layer.height); g.globalAlpha=1;
     if(position==='outside'){ g.globalCompositeOperation='destination-out'; g.drawImage(maskCanvas,0,0); }
@@ -328,16 +419,27 @@
     g.globalCompositeOperation='destination-in'; g.drawImage(maskCanvas,0,0);
     return layer;
   }
+  function getGroupEffectComposite(group,stage){
+    const strokes=(group.strokes||[]).filter(s=>s.enabled!==false); const shadows=(group.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0); if(!strokes.length&&!shadows.length) return null;
+    const relevantStrokes=stage==='before' ? strokes.filter(s=>s.position==='outside') : strokes.filter(s=>s.position!=='outside');
+    if(stage==='before' && !relevantStrokes.length) return null;
+    if(stage==='after' && !relevantStrokes.length && !shadows.length) return null;
+    const layout=computeGroupLayout(group,1.1); if(!layout) return null;
+    const effectSig=JSON.stringify({stage,strokes:relevantStrokes,shadows:stage==='after'?shadows:[]});
+    const key=`${group.id}|${layout.memberSig}|${layout.w}x${layout.h}|${effectSig}`;
+    if(groupEffectCache.has(key)) return groupEffectCache.get(key);
+    const mask=buildGroupMaskFromLayout(layout); const layers=[];
+    relevantStrokes.forEach(s=>{ const layer=dilatedMask(mask,Math.max(.1,(Number(s.width)||0)*layout.q),s.color,s.opacity,s.position); layers.push({canvas:layer,blend:blendToCanvas(s.blend)}); });
+    if(stage==='after'){ shadows.forEach(s=>{ const scaled={...s,distance:(Number(s.distance)||0)*layout.q,size:(Number(s.size)||0)*layout.q}; const layer=groupInnerShadowLayer(mask,scaled); layers.push({canvas:layer,blend:blendToCanvas(s.blend)}); }); }
+    return cacheMapSet(groupEffectCache,key,{layers,x:layout.x,y:layout.y,w:layout.w,h:layout.h},80);
+  }
   function drawGroupEffects(targetCtx,stage){
     const seen=new Set();
-    for(const ch of state.chars){ if(!ch.groupId||seen.has(ch.groupId)) continue; const group=groupById(ch.groupId); seen.add(ch.groupId); if(!group) continue; const strokes=(group.strokes||[]).filter(s=>s.enabled!==false); const shadows=(group.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0); if(!strokes.length&&!shadows.length) continue;
-      const mask=buildGroupMask(group.id,1.3);
-      if(stage==='before'){
-        strokes.filter(s=>s.position==='outside').forEach(s=>{ const layer=dilatedMask(mask,Math.max(.1,Number(s.width)||0),s.color,s.opacity,'outside'); targetCtx.save(); targetCtx.globalCompositeOperation=blendToCanvas(s.blend); targetCtx.drawImage(layer,0,0,state.project.width,state.project.height); targetCtx.restore(); });
-      } else {
-        strokes.filter(s=>s.position!=='outside').forEach(s=>{ const layer=dilatedMask(mask,Math.max(.1,Number(s.width)||0),s.color,s.opacity,s.position); targetCtx.save(); targetCtx.globalCompositeOperation=blendToCanvas(s.blend); targetCtx.drawImage(layer,0,0,state.project.width,state.project.height); targetCtx.restore(); });
-        shadows.forEach(s=>{ const layer=groupInnerShadowLayer(mask,s); targetCtx.save(); targetCtx.globalCompositeOperation=blendToCanvas(s.blend); targetCtx.drawImage(layer,0,0,state.project.width,state.project.height); targetCtx.restore(); });
-      }
+    for(const ch of state.chars){
+      if(!ch.groupId||seen.has(ch.groupId)) continue;
+      seen.add(ch.groupId); const group=groupById(ch.groupId); if(!group) continue;
+      const comp=getGroupEffectComposite(group,stage); if(!comp) continue;
+      for(const layer of comp.layers){ targetCtx.save(); targetCtx.globalCompositeOperation=layer.blend; targetCtx.drawImage(layer.canvas,comp.x,comp.y,comp.w,comp.h); targetCtx.restore(); }
     }
   }
   function render(){
@@ -500,7 +602,7 @@
       if(temp.length)total-=spacing; let cursor=state.project.width/2-total/2;
       for(const item of temp){ item.ch.x=cursor+item.w/2;item.ch.y=startY+li*lineHeight;cursor+=item.advance;chars.push(item.ch); }
     });
-    state.chars=chars;state.groups=[];surfaceCache.clear();setSelection(chars.length?[chars[0].id]:[],chars[0]?.id||null);pushHistory();updateAll();toast(`${chars.length}개 글자 레이어를 만들었습니다.`);
+    state.chars=chars;state.groups=[];clearRuntimeCaches();setSelection(chars.length?[chars[0].id]:[],chars[0]?.id||null);pushHistory();updateAll();toast(`${chars.length}개 글자 레이어를 만들었습니다.`);
   }
 
   function effectTargets(){
@@ -509,8 +611,8 @@
     return [a];
   }
   function currentEffectScope(){ const a=activeChar(); if(!a) return null; if(state.groupEffectEdit && a.groupId){ return {type:'group', group:groupById(a.groupId)}; } return {type:'chars', chars:effectTargets()}; }
-  function applyEffectMutation(fn){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ fn(scope.group); } else { scope.chars.forEach(fn); markManyDirty(scope.chars); } surfaceCache.clear(); render(); updateLayers(); scheduleHistory(); }
-  function applyCharMutation(fn,dirty=true){ const c=activeChar();if(!c)return;fn(c);if(dirty){markDirty(c);surfaceCache.clear();}render();updateLayers();scheduleHistory(); }
+  function applyEffectMutation(fn){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ fn(scope.group); } else { scope.chars.forEach(fn); markManyDirty(scope.chars); } clearRuntimeCaches(); render(); updateLayers(); scheduleHistory(); }
+  function applyCharMutation(fn,dirty=true){ const c=activeChar();if(!c)return;fn(c);if(dirty){markDirty(c);clearRuntimeCaches();}render();updateLayers();scheduleHistory(); }
 
   function updateInspectorTransformOnly(){ const c=activeChar();if(!c)return; $('charX').value=Math.round(c.x);$('charY').value=Math.round(c.y);$('charAngle').value=(c.angle||0).toFixed(1);$('charScale').value=(c.scale||1).toFixed(3); $('charScaleX').value=(c.scaleX||1).toFixed(3); $('charScaleY').value=(c.scaleY||1).toFixed(3); $('charSkewX').value=(c.skewX||0).toFixed(1); $('charSkewY').value=(c.skewY||0).toFixed(1); }
   function updateInspector(){
@@ -530,12 +632,12 @@
   function renderGradientStops(c){
     const box=$('gradientStopList'); if(!box||!c)return; const gr=ensureGradient(c); box.innerHTML='';
     [...gr.stops].sort((a,b)=>a.position-b.position).forEach((st,index)=>{ const row=document.createElement('div'); row.className='gradient-stop'; row.dataset.id=st.id; row.innerHTML=`<input data-gk="color" type="color" value="${normalizeHex(st.color)}" title="색상"><label>HEX<input data-gk="hex" type="text" value="${normalizeHex(st.color)}" maxlength="7"></label><label class="stop-pos">위치(%)<input data-gk="position" type="number" min="0" max="100" step="1" value="${st.position}"></label><button class="mini-icon danger" data-gact="delete" ${gr.stops.length<=2?'disabled':''}>삭제</button>`;
-      row.addEventListener('input',ev=>{ const a=activeChar(); if(!a)return; const g=ensureGradient(a), item=g.stops.find(x=>x.id===st.id); if(!item)return; const k=ev.target.dataset.gk; if(k==='hex')return; if(k==='color'){item.color=normalizeHex(ev.target.value); const h=row.querySelector('[data-gk="hex"]');if(h)h.value=item.color;} else if(k==='position'){item.position=clamp(Number(ev.target.value)||0,0,100);} markDirty(a);surfaceCache.clear();renderGradientPreview(a);render();scheduleHistory(); });
-      row.addEventListener('change',ev=>{if(ev.target.dataset.gk!=='hex')return;const a=activeChar();if(!a)return;const g=ensureGradient(a),item=g.stops.find(x=>x.id===st.id);if(!item)return;item.color=normalizeHex(ev.target.value,item.color);ev.target.value=item.color;const cp=row.querySelector('[data-gk="color"]');if(cp)cp.value=item.color;markDirty(a);surfaceCache.clear();renderGradientPreview(a);render();pushHistory();});
-      row.querySelector('[data-gact="delete"]').addEventListener('click',()=>{const a=activeChar();if(!a)return;const g=ensureGradient(a);if(g.stops.length<=2)return;g.stops=g.stops.filter(x=>x.id!==st.id);markDirty(a);surfaceCache.clear();renderGradientStops(a);renderGradientPreview(a);render();pushHistory();}); box.appendChild(row); });
+      row.addEventListener('input',ev=>{ const a=activeChar(); if(!a)return; const g=ensureGradient(a), item=g.stops.find(x=>x.id===st.id); if(!item)return; const k=ev.target.dataset.gk; if(k==='hex')return; if(k==='color'){item.color=normalizeHex(ev.target.value); const h=row.querySelector('[data-gk="hex"]');if(h)h.value=item.color;} else if(k==='position'){item.position=clamp(Number(ev.target.value)||0,0,100);} markDirty(a);clearRuntimeCaches();renderGradientPreview(a);render();scheduleHistory(); });
+      row.addEventListener('change',ev=>{if(ev.target.dataset.gk!=='hex')return;const a=activeChar();if(!a)return;const g=ensureGradient(a),item=g.stops.find(x=>x.id===st.id);if(!item)return;item.color=normalizeHex(ev.target.value,item.color);ev.target.value=item.color;const cp=row.querySelector('[data-gk="color"]');if(cp)cp.value=item.color;markDirty(a);clearRuntimeCaches();renderGradientPreview(a);render();pushHistory();});
+      row.querySelector('[data-gact="delete"]').addEventListener('click',()=>{const a=activeChar();if(!a)return;const g=ensureGradient(a);if(g.stops.length<=2)return;g.stops=g.stops.filter(x=>x.id!==st.id);markDirty(a);clearRuntimeCaches();renderGradientStops(a);renderGradientPreview(a);render();pushHistory();}); box.appendChild(row); });
   }
-  function addGradientStop(){ const c=activeChar();if(!c)return;const gr=ensureGradient(c), sorted=[...gr.stops].sort((a,b)=>a.position-b.position); let pos=50; if(sorted.length>=2){let best=-1;for(let i=0;i<sorted.length-1;i++){const gap=sorted[i+1].position-sorted[i].position;if(gap>best){best=gap;pos=(sorted[i].position+sorted[i+1].position)/2;}}} gr.stops.push({id:uid('gstop'),position:Math.round(pos),color:normalizeHex(c.fill)});markDirty(c);surfaceCache.clear();renderGradientStops(c);renderGradientPreview(c);render();pushHistory(); }
-  function applyGradientPreset(name){ const c=activeChar();if(!c)return;const base=normalizeHex(c.fill), rec=makeBevelRecommendations(base), g=ensureGradient(c); if(name==='toplight'){c.fillMode='linear';g.angle=90;g.range=110;g.centerX=50;g.centerY=48;g.stops=[{id:uid('gstop'),position:0,color:rec.highlight[1]},{id:uid('gstop'),position:35,color:rec.highlight[0]},{id:uid('gstop'),position:68,color:base},{id:uid('gstop'),position:100,color:rec.shadow[0]}];} else if(name==='soft3'){c.fillMode='linear';g.angle=90;g.range=145;g.stops=[{id:uid('gstop'),position:0,color:rec.highlight[0]},{id:uid('gstop'),position:50,color:base},{id:uid('gstop'),position:100,color:rec.shadow[0]}];} else if(name==='candy'){c.fillMode='linear';g.angle=90;g.range=92;g.stops=[{id:uid('gstop'),position:0,color:rec.highlight[1]},{id:uid('gstop'),position:22,color:rec.highlight[0]},{id:uid('gstop'),position:38,color:base},{id:uid('gstop'),position:66,color:base},{id:uid('gstop'),position:100,color:rec.shadow[1]}];} else {c.fillMode='linear';g.angle=90;g.range=100;g.stops=[{id:uid('gstop'),position:0,color:rec.highlight[0]},{id:uid('gstop'),position:42,color:base},{id:uid('gstop'),position:100,color:rec.shadow[2]}];} markDirty(c);surfaceCache.clear();updateInspector();render();pushHistory(); }
+  function addGradientStop(){ const c=activeChar();if(!c)return;const gr=ensureGradient(c), sorted=[...gr.stops].sort((a,b)=>a.position-b.position); let pos=50; if(sorted.length>=2){let best=-1;for(let i=0;i<sorted.length-1;i++){const gap=sorted[i+1].position-sorted[i].position;if(gap>best){best=gap;pos=(sorted[i].position+sorted[i+1].position)/2;}}} gr.stops.push({id:uid('gstop'),position:Math.round(pos),color:normalizeHex(c.fill)});markDirty(c);clearRuntimeCaches();renderGradientStops(c);renderGradientPreview(c);render();pushHistory(); }
+  function applyGradientPreset(name){ const c=activeChar();if(!c)return;const base=normalizeHex(c.fill), rec=makeBevelRecommendations(base), g=ensureGradient(c); if(name==='toplight'){c.fillMode='linear';g.angle=90;g.range=110;g.centerX=50;g.centerY=48;g.stops=[{id:uid('gstop'),position:0,color:rec.highlight[1]},{id:uid('gstop'),position:35,color:rec.highlight[0]},{id:uid('gstop'),position:68,color:base},{id:uid('gstop'),position:100,color:rec.shadow[0]}];} else if(name==='soft3'){c.fillMode='linear';g.angle=90;g.range=145;g.stops=[{id:uid('gstop'),position:0,color:rec.highlight[0]},{id:uid('gstop'),position:50,color:base},{id:uid('gstop'),position:100,color:rec.shadow[0]}];} else if(name==='candy'){c.fillMode='linear';g.angle=90;g.range=92;g.stops=[{id:uid('gstop'),position:0,color:rec.highlight[1]},{id:uid('gstop'),position:22,color:rec.highlight[0]},{id:uid('gstop'),position:38,color:base},{id:uid('gstop'),position:66,color:base},{id:uid('gstop'),position:100,color:rec.shadow[1]}];} else {c.fillMode='linear';g.angle=90;g.range=100;g.stops=[{id:uid('gstop'),position:0,color:rec.highlight[0]},{id:uid('gstop'),position:42,color:base},{id:uid('gstop'),position:100,color:rec.shadow[2]}];} markDirty(c);clearRuntimeCaches();updateInspector();render();pushHistory(); }
   function renderStrokeList(c){
     const box=$('strokeList');box.innerHTML=''; const scope=(state.groupEffectEdit&&c.groupId)?groupById(c.groupId):c; const list=scope&&scope.strokes||[];
     if(!list.length){box.innerHTML='<div class="hint">획이 없습니다. + 획 추가를 눌러 원하는 만큼 추가하세요.</div>';return;}
@@ -582,12 +684,12 @@
       const act=ev.target.dataset.act;if(!act)return;ev.preventDefault();
       const scope=currentEffectScope();if(!scope)return;const targets=scope.type==='group'?[scope.group]:scope.chars;
       targets.forEach(target=>{const arr=type==='stroke'?target.strokes:target.innerShadows;const ix=arr.findIndex(x=>x.id===id); if(ix<0)return; if(act==='del')arr.splice(ix,1); else if(act==='up'&&ix>0)[arr[ix-1],arr[ix]]=[arr[ix],arr[ix-1]]; else if(act==='down'&&ix<arr.length-1)[arr[ix+1],arr[ix]]=[arr[ix],arr[ix+1]]; if(scope.type!=='group')markDirty(target);});
-      surfaceCache.clear();updateInspector();render();pushHistory();
+      clearRuntimeCaches();updateInspector();render();pushHistory();
     });
   }
 
-  function addStroke(){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ const g=scope.group; g.strokes=g.strokes||[]; g.strokes.push(defaultStroke(g.strokes.length)); } else { const targets=scope.chars;if(!targets.length)return;const template=defaultStroke(targets[0].strokes.length);const sharedId=template.id;targets.forEach(ch=>{ch.strokes.push({...deepClone(template),id:sharedId});markDirty(ch)}); } surfaceCache.clear();updateInspector();render();pushHistory(); }
-  function addInnerShadow(){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ const g=scope.group; g.innerShadows=g.innerShadows||[]; g.innerShadows.push(defaultInnerShadow()); } else { const targets=scope.chars;if(!targets.length)return;const template=defaultInnerShadow();const sharedId=template.id;targets.forEach(ch=>{ch.innerShadows.push({...deepClone(template),id:sharedId});markDirty(ch)}); } surfaceCache.clear();updateInspector();render();pushHistory();}
+  function addStroke(){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ const g=scope.group; g.strokes=g.strokes||[]; g.strokes.push(defaultStroke(g.strokes.length)); } else { const targets=scope.chars;if(!targets.length)return;const template=defaultStroke(targets[0].strokes.length);const sharedId=template.id;targets.forEach(ch=>{ch.strokes.push({...deepClone(template),id:sharedId});markDirty(ch)}); } clearRuntimeCaches();updateInspector();render();pushHistory(); }
+  function addInnerShadow(){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ const g=scope.group; g.innerShadows=g.innerShadows||[]; g.innerShadows.push(defaultInnerShadow()); } else { const targets=scope.chars;if(!targets.length)return;const template=defaultInnerShadow();const sharedId=template.id;targets.forEach(ch=>{ch.innerShadows.push({...deepClone(template),id:sharedId});markDirty(ch)}); } clearRuntimeCaches();updateInspector();render();pushHistory();}
 
   function makeGroup(){
     const ids=[...state.selectedIds];if(ids.length<2){toast('그룹화할 글자를 2개 이상 선택하세요.');return;}const gid=uid('grp'); ids.forEach(id=>{const c=charById(id);if(c)c.groupId=gid;}); state.groups.push({id:gid,strokes:[],innerShadows:[]}); setSelection(ids,activeChar()?.id||ids[0]); updateAll();pushHistory();toast(`${ids.length}개 글자를 그룹으로 묶었습니다. 이제 함께 이동하며, 그룹 획은 합쳐진 외곽선으로 적용됩니다.`);
@@ -672,7 +774,7 @@
       registerFont(family,'css',meta);
       state.fontRegistry[family]={type:'css',...(resource&&resource.tagName==='LINK'?{link:resource}:{style:resource})};
       $('fontCssFamily').value=family;
-      surfaceCache.clear(); render();
+      clearRuntimeCaches(); render();
       if(ready){
         setFontLoadStatus(`✓ “${family}” 로드 완료. 폰트 목록에서 선택해 사용할 수 있습니다.`,'ok');
         toast(`웹폰트 “${family}”을 불러왔습니다.`);
@@ -719,7 +821,7 @@
     const font=state.customFonts.find(f=>f.name===name); if(!font||font.type==='system') return;
     disposeFontResource(name); state.customFonts=state.customFonts.filter(f=>f.name!==name);
     state.chars.forEach(ch=>{if(ch.fontFamily===name){ch.fontFamily='Malgun Gothic';markDirty(ch);}});
-    surfaceCache.clear();refreshFontSelects();updateAll();pushHistory();toast(`폰트 “${name}”을 삭제했습니다. 사용 중이던 글자는 기본 폰트로 변경했습니다.`);
+    clearRuntimeCaches();refreshFontSelects();updateAll();pushHistory();toast(`폰트 “${name}”을 삭제했습니다. 사용 중이던 글자는 기본 폰트로 변경했습니다.`);
   }
 
   function renderHarmony(colors){const box=$('harmonySwatches');box.innerHTML='';colors.forEach(c=>{const b=document.createElement('button');b.className='swatch';b.style.background=c;b.title=c;b.addEventListener('click',()=>applyColorToActive(c));box.appendChild(b);});}
@@ -729,11 +831,11 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){return {version:'1.2.2',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit};}
+  function serializable(){return {version:'1.2.4',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:state.chars,groups:state.groups,groupEffectEdit:state.groupEffectEdit});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>80)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
-  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.groupEffectEdit=d.groupEffectEdit!==false;surfaceCache.clear();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll();}
+  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.groupEffectEdit=d.groupEffectEdit!==false;clearRuntimeCaches();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll();}
   function undo(){if(state.historyIndex<=0)return;state.historyIndex--;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function redo(){if(state.historyIndex>=state.history.length-1)return;state.historyIndex++;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function updateHistoryButtons(){$('undoBtn').disabled=state.historyIndex<=0;$('redoBtn').disabled=state.historyIndex>=state.history.length-1;}
@@ -745,6 +847,7 @@
     try{
       const d=JSON.parse(await file.text());if(!d.project||!Array.isArray(d.chars))throw new Error('format');
       state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.groupEffectEdit=d.groupEffectEdit!==false;
+      if(d.effectPresets)mergeEffectPresets(d.effectPresets);
       for(const f of (d.customFonts||[])){
         if(!state.customFonts.some(x=>x.name===f.name))state.customFonts.push(f);
         if(f.type==='css'){
@@ -757,7 +860,7 @@
           try{const ff=new FontFace(f.name,`url("${f.url}")`);const x=await ff.load();document.fonts.add(x);state.fontRegistry[f.name]={type:'url',fontFace:x};}catch(_){}
         }
       }
-      refreshFontSelects();surfaceCache.clear();$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.history=[];state.historyIndex=-1;setSelection([]);resizeDisplay();pushHistory();updateAll();toast('프로젝트를 불러왔습니다.');
+      refreshFontSelects();clearRuntimeCaches();$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.history=[];state.historyIndex=-1;setSelection([]);resizeDisplay();pushHistory();updateAll();toast('프로젝트를 불러왔습니다.');
     }catch(e){toast('FontFX 프로젝트 JSON을 읽지 못했습니다.');}
   }
 
@@ -795,7 +898,7 @@
   }
 
   function copyStyle(){ const c=activeChar(); if(!c){toast('스타일을 복사할 글자를 선택하세요.'); return;} state.styleClipboard=charStyleSnapshot(c); toast('스타일을 복사했습니다.'); }
-  function pasteStyle(){ if(!state.styleClipboard){toast('복사된 스타일이 없습니다.'); return;} const targets=state.selectedIds.size?[...state.selectedIds].map(charById).filter(Boolean):[activeChar()].filter(Boolean); if(!targets.length){toast('스타일을 붙여넣을 글자를 선택하세요.'); return;} targets.forEach(ch=>applyStyleSnapshot(ch,state.styleClipboard)); surfaceCache.clear(); updateAll(); pushHistory(); toast(`${targets.length}개 글자에 스타일을 붙여넣었습니다.`); }
+  function pasteStyle(){ if(!state.styleClipboard){toast('복사된 스타일이 없습니다.'); return;} const targets=state.selectedIds.size?[...state.selectedIds].map(charById).filter(Boolean):[activeChar()].filter(Boolean); if(!targets.length){toast('스타일을 붙여넣을 글자를 선택하세요.'); return;} targets.forEach(ch=>applyStyleSnapshot(ch,state.styleClipboard)); clearRuntimeCaches(); updateAll(); pushHistory(); toast(`${targets.length}개 글자에 스타일을 붙여넣었습니다.`); }
 
   function updateAll(){updateInspector();updateLayers();render();updateHistoryButtons();}
 
@@ -823,9 +926,12 @@
   function bindEvents(){
     $('applyCanvasSize').addEventListener('click',applyCanvasSize);document.querySelectorAll('.canvas-preset').forEach(b=>b.addEventListener('click',()=>{$('canvasWidth').value=b.dataset.w;$('canvasHeight').value=b.dataset.h;applyCanvasSize();}));
     $('createTextBtn').addEventListener('click',createText);$('addCssFontBtn').addEventListener('click',addCssFont);$('addUrlFontBtn').addEventListener('click',addUrlFont);$('localFontInput').addEventListener('change',e=>addLocalFont(e.target.files[0]));
-    $('fontSelect').addEventListener('change',()=>{const name=$('fontSelect').value; if(state.selectedIds.size){ [...state.selectedIds].map(charById).filter(Boolean).forEach(ch=>{ch.fontFamily=name; markDirty(ch);}); surfaceCache.clear(); updateAll(); pushHistory(); }});$('makeHarmonyBtn').addEventListener('click',()=>{const h=normalizeHex($('harmonyBaseHex').value,$('harmonyBaseColor').value);$('harmonyBaseHex').value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));});$('harmonyBaseColor').addEventListener('input',e=>{$('harmonyBaseHex').value=normalizeHex(e.target.value);renderHarmony(makeHarmony(e.target.value));});$('harmonyBaseHex').addEventListener('change',e=>{const h=normalizeHex(e.target.value);e.target.value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));});
+    $('fontSelect').addEventListener('change',()=>{const name=$('fontSelect').value; if(state.selectedIds.size){ [...state.selectedIds].map(charById).filter(Boolean).forEach(ch=>{ch.fontFamily=name; markDirty(ch);}); clearRuntimeCaches(); updateAll(); pushHistory(); }});$('makeHarmonyBtn').addEventListener('click',()=>{const h=normalizeHex($('harmonyBaseHex').value,$('harmonyBaseColor').value);$('harmonyBaseHex').value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));});$('harmonyBaseColor').addEventListener('input',e=>{$('harmonyBaseHex').value=normalizeHex(e.target.value);renderHarmony(makeHarmony(e.target.value));});$('harmonyBaseHex').addEventListener('change',e=>{const h=normalizeHex(e.target.value);e.target.value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));});
     $('addGradientStopBtn').addEventListener('click',addGradientStop);document.querySelectorAll('.gradient-preset').forEach(b=>b.addEventListener('click',()=>applyGradientPreset(b.dataset.preset)));
     $('addStrokeBtn').addEventListener('click',addStroke);$('addInnerShadowBtn').addEventListener('click',addInnerShadow);$('makeGroupBtn').addEventListener('click',makeGroup);$('ungroupBtn').addEventListener('click',ungroup);$('groupEffectToggle').addEventListener('change',e=>{state.groupEffectEdit=e.target.checked;updateInspector();pushHistory();});$('groupMoveToggle').addEventListener('change',e=>state.groupMove=e.target.checked);$('copyStyleBtn').addEventListener('click',copyStyle);$('pasteStyleBtn').addEventListener('click',pasteStyle);
+    $('saveStrokePresetBtn').addEventListener('click',()=>saveEffectPreset('stroke'));$('applyStrokePresetBtn').addEventListener('click',()=>applyEffectPreset('stroke'));$('deleteStrokePresetBtn').addEventListener('click',()=>deleteEffectPreset('stroke'));
+    $('saveShadowPresetBtn').addEventListener('click',()=>saveEffectPreset('shadow'));$('applyShadowPresetBtn').addEventListener('click',()=>applyEffectPreset('shadow'));$('deleteShadowPresetBtn').addEventListener('click',()=>deleteEffectPreset('shadow'));
+    $('strokePresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('stroke');}});$('shadowPresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('shadow');}});
     $('layerTopBtn').addEventListener('click',()=>moveLayer('top'));$('layerUpBtn').addEventListener('click',()=>moveLayer('up'));$('layerDownBtn').addEventListener('click',()=>moveLayer('down'));$('layerBottomBtn').addEventListener('click',()=>moveLayer('bottom'));
     $('fitBtn').addEventListener('click',resizeDisplay);$('centerSelectedBtn').addEventListener('click',centerSelected);
     $('exportCombinedBtn').addEventListener('click',exportCombined);$('exportCharsBtn').addEventListener('click',exportChars);$('saveProjectBtn').addEventListener('click',saveProject);$('loadProjectInput').addEventListener('change',e=>loadProject(e.target.files[0]));
@@ -833,6 +939,6 @@
     bindInspector();
   }
 
-  function boot(){initFonts();renderPalettes();renderHarmony(makeHarmony('#9389DE'));bindEvents();resizeDisplay();pushHistory();updateAll();}
+  function boot(){loadEffectPresets();initFonts();renderPalettes();renderHarmony(makeHarmony('#9389DE'));renderAllEffectPresetControls();bindEvents();resizeDisplay();pushHistory();updateAll();}
   boot();
 })();

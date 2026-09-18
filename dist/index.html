@@ -4,16 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.2.2 Web</title>
+  <title>FontFX Studio 1.2.4 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.2.2" />
+  <link rel="stylesheet" href="styles.css?v=1.2.4" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark">F</div>
-      <div><strong>FontFX Studio</strong><span>v1.2.2 Web · Stable Webfont Loader / Gradient Fill</span></div>
+      <div><strong>FontFX Studio</strong><span>v1.2.4 Web · Effect Preset Library</span></div>
     </div>
     <div class="top-actions">
       <button id="undoBtn" class="ghost" title="Ctrl+Z">↶ 실행취소</button>
@@ -181,10 +181,34 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
 
           <div class="divider"></div>
           <div class="card-title-row"><h3>다중 획</h3><button id="addStrokeBtn" class="primary small">+ 획 추가</button></div>
+          <div class="effect-preset-box">
+            <div class="preset-save-row">
+              <input id="strokePresetName" type="text" placeholder="예: 보라 3중 외곽선">
+              <button id="saveStrokePresetBtn" class="secondary small">현재 획 저장</button>
+            </div>
+            <div class="preset-load-row">
+              <select id="strokePresetSelect"><option value="">저장된 획 프리셋 없음</option></select>
+              <button id="applyStrokePresetBtn" class="ghost small">적용</button>
+              <button id="deleteStrokePresetBtn" class="danger small">삭제</button>
+            </div>
+            <p class="hint">현재 획의 개수·순서·굵기·위치·혼합모드·불투명도·색상을 한 번에 저장합니다.</p>
+          </div>
           <div id="strokeList" class="effect-list"></div>
 
           <div class="divider"></div>
           <div class="card-title-row"><h3>내부 그림자</h3><button id="addInnerShadowBtn" class="primary small">+ 그림자 추가</button></div>
+          <div class="effect-preset-box">
+            <div class="preset-save-row">
+              <input id="shadowPresetName" type="text" placeholder="예: 상단광 + 하단 음영">
+              <button id="saveShadowPresetBtn" class="secondary small">현재 그림자 저장</button>
+            </div>
+            <div class="preset-load-row">
+              <select id="shadowPresetSelect"><option value="">저장된 그림자 프리셋 없음</option></select>
+              <button id="applyShadowPresetBtn" class="ghost small">적용</button>
+              <button id="deleteShadowPresetBtn" class="danger small">삭제</button>
+            </div>
+            <p class="hint">혼합모드·색상·불투명도·각도·거리·경계감소·크기·윤곽선·품질까지 저장합니다.</p>
+          </div>
           <div id="innerShadowList" class="effect-list"></div>
         </div>
       </section>
@@ -213,6 +237,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.2.2"></script>
+  <script src="app.js?v=1.2.4"></script>
 </body>
 </html>
