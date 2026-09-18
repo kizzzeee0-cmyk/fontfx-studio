@@ -4,16 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.2.4 Web</title>
+  <title>FontFX Studio 1.2.5 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.2.4" />
+  <link rel="stylesheet" href="styles.css?v=1.2.5" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark">F</div>
-      <div><strong>FontFX Studio</strong><span>v1.2.4 Web · Effect Preset Library</span></div>
+      <div><strong>FontFX Studio</strong><span>v1.2.5 Web · Drawing Tool / Alignment / Faster Group Effects</span></div>
     </div>
     <div class="top-actions">
       <button id="undoBtn" class="ghost" title="Ctrl+Z">↶ 실행취소</button>
@@ -85,6 +85,23 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
         <p class="hint">각 글자는 독립 레이어입니다. 캔버스에서 직접 드래그·회전·크기 조절할 수 있습니다.</p>
       </section>
 
+
+      <section class="card">
+        <h2>4. 그리기 툴</h2>
+        <div class="field-row two">
+          <button id="drawModeBtn2" class="secondary">그리기 모드 켜기/끄기</button>
+          <label>브러시 색상<div class="color-line"><input id="drawColor" type="color" value="#ff5aa5"><input id="drawColorHex" type="text" value="#FF5AA5" maxlength="7"></div></label>
+        </div>
+        <label>브러시 굵기</label>
+        <div class="range-row"><input id="drawBrushSize" type="range" min="1" max="160" value="18"><span id="drawBrushSizeValue" class="range-value">18 px</span></div>
+        <div class="field-row three draw-tool-actions">
+          <button id="undoLastDrawBtn" class="ghost">마지막 선 삭제</button>
+          <button id="clearDrawingsBtn" class="ghost">전체 선 삭제</button>
+          <button id="drawBelowTextBtn" class="ghost">선은 글자 위에 표시</button>
+        </div>
+        <p class="hint">브러시는 기본적으로 손떨림 방지가 강하게 적용됩니다. 작업 중에는 그리기 모드를 켜고 캔버스에 바로 그릴 수 있습니다.</p>
+      </section>
+
       <section class="card">
         <h2>색상 도우미</h2>
         <div class="color-line">
@@ -108,13 +125,16 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
         <div class="toolbar-group">
           <label class="toggle"><input id="groupMoveToggle" type="checkbox"><span>그룹 클릭 시 함께 선택</span></label>
           <button id="fitBtn" class="ghost small">화면 맞춤</button>
-          <button id="centerSelectedBtn" class="ghost small">선택 중앙</button>
+          <button id="centerXBtn" class="ghost small">가로 중앙</button>
+          <button id="centerYBtn" class="ghost small">세로 중앙</button>
+          <button id="centerSelectedBtn" class="ghost small">정중앙</button>
+          <button id="drawModeBtn" class="ghost small">그리기 모드</button>
         </div>
       </div>
       <div id="canvasViewport" class="canvas-viewport">
         <div id="canvasShell" class="canvas-shell"><canvas id="designCanvas"></canvas></div>
       </div>
-      <div class="workspace-help">드래그: 이동 · 모서리 핸들: 크기 · 위 원형 핸들: 회전 · Shift+클릭: 다중 선택 · Delete: 삭제</div>
+      <div class="workspace-help">드래그: 이동 · 모서리 핸들: 크기 · 위 원형 핸들: 회전 · Shift+클릭: 다중 선택 · Delete: 삭제 · 그리기 모드에서는 손떨림 방지 최대 상태로 자유 드로잉</div>
     </section>
 
     <aside class="panel right-panel">
@@ -237,6 +257,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.2.4"></script>
+  <script src="app.js?v=1.2.5"></script>
 </body>
 </html>

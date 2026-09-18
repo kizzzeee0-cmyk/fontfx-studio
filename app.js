@@ -51,6 +51,8 @@
     groupEffectEdit: true,
     styleClipboard: null,
     effectPresets: { strokes: [], shadows: [] },
+    drawings: [],
+    drawTool: { enabled: false, color: '#FF5AA5', size: 18, aboveText: true, stabilize: 0.88 },
     history: [],
     historyIndex: -1,
     suppressHistory: false
@@ -78,6 +80,9 @@
   function markManyDirty(chars){ chars.forEach(markDirty); }
   function clearRuntimeCaches(){ surfaceCache.clear(); groupEffectCache.clear(); }
   function cacheMapSet(map,key,value,max=120){ map.set(key,value); if(map.size>max){ const first=map.keys().next().value; map.delete(first); } return value; }
+  function normalizeHexInput(v,fallback='#000000'){ const hex=String(v||'').trim(); return /^#?[0-9a-fA-F]{6}$/.test(hex) ? ('#'+hex.replace('#','')).toUpperCase() : fallback; }
+  function renderScheduled(){ if(renderScheduled._raf) return; renderScheduled._raf=requestAnimationFrame(()=>{ renderScheduled._raf=0; render(); }); }
+
   function normalizeEffectPresetLibrary(value){
     const v=value&&typeof value==='object'?value:{};
     return {strokes:Array.isArray(v.strokes)?v.strokes:[],shadows:Array.isArray(v.shadows)?v.shadows:[]};
@@ -404,7 +409,7 @@
   }
   function dilatedMask(maskCanvas,width,color,opacity,position='outside'){
     const layer=document.createElement('canvas'); layer.width=maskCanvas.width; layer.height=maskCanvas.height; const g=layer.getContext('2d');
-    const scaledWidth=Math.max(.1,width); const steps=Math.max(10,Math.round(scaledWidth*4)); const rings=Math.max(1,Math.ceil(scaledWidth));
+    const scaledWidth=Math.max(.1,width); const steps=Math.max(8,Math.round(Math.min(32,scaledWidth*2.1))); const rings=Math.max(1,Math.ceil(Math.min(56,scaledWidth*0.9)));
     for(let r=1;r<=rings;r++){ const rad=r; for(let i=0;i<steps;i++){ const t=i/steps*Math.PI*2, dx=Math.cos(t)*rad, dy=Math.sin(t)*rad; g.drawImage(maskCanvas,dx,dy); } }
     g.globalCompositeOperation='source-in'; g.fillStyle=color; g.globalAlpha=clamp(opacity/100,0,1); g.fillRect(0,0,layer.width,layer.height); g.globalAlpha=1;
     if(position==='outside'){ g.globalCompositeOperation='destination-out'; g.drawImage(maskCanvas,0,0); }
@@ -424,7 +429,7 @@
     const relevantStrokes=stage==='before' ? strokes.filter(s=>s.position==='outside') : strokes.filter(s=>s.position!=='outside');
     if(stage==='before' && !relevantStrokes.length) return null;
     if(stage==='after' && !relevantStrokes.length && !shadows.length) return null;
-    const layout=computeGroupLayout(group,1.1); if(!layout) return null;
+    const layout=computeGroupLayout(group,0.82); if(!layout) return null;
     const effectSig=JSON.stringify({stage,strokes:relevantStrokes,shadows:stage==='after'?shadows:[]});
     const key=`${group.id}|${layout.memberSig}|${layout.w}x${layout.h}|${effectSig}`;
     if(groupEffectCache.has(key)) return groupEffectCache.get(key);
@@ -442,11 +447,38 @@
       for(const layer of comp.layers){ targetCtx.save(); targetCtx.globalCompositeOperation=layer.blend; targetCtx.drawImage(layer.canvas,comp.x,comp.y,comp.w,comp.h); targetCtx.restore(); }
     }
   }
+  function drawStrokePath(g, points){
+    if(!points||!points.length) return;
+    if(points.length===1){ g.beginPath(); g.arc(points[0].x,points[0].y,0.5,0,Math.PI*2); g.fill(); return; }
+    g.beginPath(); g.moveTo(points[0].x, points[0].y);
+    for(let i=1;i<points.length-1;i++){
+      const midX=(points[i].x+points[i+1].x)/2, midY=(points[i].y+points[i+1].y)/2;
+      g.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
+    }
+    const last=points[points.length-1]; g.lineTo(last.x,last.y); g.stroke();
+  }
+  function drawFreehand(targetCtx, placement='all'){
+    for(const stroke of state.drawings){
+      const isAbove = stroke.aboveText!==false;
+      if(placement!=='all' && ((placement==='below'&&isAbove) || (placement==='above'&&!isAbove))) continue;
+      targetCtx.save();
+      targetCtx.strokeStyle=stroke.color; targetCtx.fillStyle=stroke.color; targetCtx.lineWidth=stroke.size; targetCtx.lineCap='round'; targetCtx.lineJoin='round';
+      drawStrokePath(targetCtx, stroke.points||[]);
+      targetCtx.restore();
+    }
+  }
+  function setDrawMode(enabled){ state.drawTool.enabled=!!enabled; shell.classList.toggle('draw-active',state.drawTool.enabled); ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.drawTool.enabled); if(b) b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }); }
+  function updateDrawToolUI(){ const color=normalizeHexInput(state.drawTool.color,'#FF5AA5'); state.drawTool.color=color; if($('drawColor'))$('drawColor').value=color; if($('drawColorHex'))$('drawColorHex').value=color; if($('drawBrushSize'))$('drawBrushSize').value=state.drawTool.size; if($('drawBrushSizeValue'))$('drawBrushSizeValue').textContent=`${state.drawTool.size} px`; const btn=$('drawBelowTextBtn'); if(btn) btn.textContent = state.drawTool.aboveText===false ? '선은 글자 아래에 표시' : '선은 글자 위에 표시'; setDrawMode(state.drawTool.enabled); }
+  function removeLastDrawing(){ if(!state.drawings.length){toast('삭제할 선이 없습니다.');return;} state.drawings.pop(); render(); pushHistory(); }
+  function clearAllDrawings(){ if(!state.drawings.length){toast('지울 선이 없습니다.');return;} state.drawings=[]; render(); pushHistory(); }
+
   function render(){
     const z=state.zoom; ctx.setTransform(DPR*z,0,0,DPR*z,0,0); ctx.clearRect(0,0,state.project.width,state.project.height);
+    drawFreehand(ctx,'below');
     drawGroupEffects(ctx,'before');
-    for(const ch of state.chars) drawChar(ctx,ch,Math.min(2.5,Math.max(1.3,DPR/state.zoom)));
+    for(const ch of state.chars) drawChar(ctx,ch,Math.min(2.2,Math.max(1.15,DPR/state.zoom)));
     drawGroupEffects(ctx,'after');
+    drawFreehand(ctx,'above');
     drawSelection(ctx);
   }
   function drawSelection(g){
@@ -471,7 +503,12 @@
   }
 
   canvas.addEventListener('pointerdown',(e)=>{
-    canvas.setPointerCapture(e.pointerId); const p=eventPoint(e); const active=activeChar(); const handle=hitHandle(active,p);
+    canvas.setPointerCapture(e.pointerId); const p=eventPoint(e);
+    if(state.drawTool.enabled){
+      const stroke={id:uid('draw'),color:state.drawTool.color,size:Number(state.drawTool.size)||18,aboveText:state.drawTool.aboveText!==false,points:[p]};
+      state.drawings.push(stroke); state.interaction={type:'draw',strokeId:stroke.id,lastRaw:p,lastSmooth:p}; renderScheduled(); return;
+    }
+    const active=activeChar(); const handle=hitHandle(active,p);
     if(handle){
       const b=objectBox(active); const startDist=Math.max(1,Math.hypot(p.x-active.x,p.y-active.y)); const startAngle=Math.atan2(p.y-active.y,p.x-active.x);
       state.interaction={type:handle==='rot'?'rotate':'scale',id:active.id,start:p,startScale:active.scale,startObjAngle:active.angle,startPointerAngle:startAngle,startDist,startBox:b}; return;
@@ -484,12 +521,21 @@
   });
   canvas.addEventListener('pointermove',(e)=>{
     const it=state.interaction;if(!it)return; const p=eventPoint(e);
+    if(it.type==='draw'){
+      const stroke=state.drawings.find(d=>d.id===it.strokeId); if(!stroke) return;
+      const stabilize=clamp(Number(state.drawTool.stabilize)||0.88,0,0.98), alpha=1-stabilize;
+      const prev=it.lastSmooth||p; const nx=prev.x+(p.x-prev.x)*alpha, ny=prev.y+(p.y-prev.y)*alpha;
+      const smooth={x:nx,y:ny};
+      const last=stroke.points[stroke.points.length-1];
+      if(!last || Math.hypot(smooth.x-last.x,smooth.y-last.y) >= Math.max(0.8, stroke.size*0.08)) stroke.points.push(smooth);
+      it.lastRaw=p; it.lastSmooth=smooth; renderScheduled(); return;
+    }
     if(it.type==='move'){ const dx=p.x-it.start.x,dy=p.y-it.start.y; for(const o of it.origins){const c=charById(o.id);if(c&&!c.locked){c.x=o.x+dx;c.y=o.y+dy;}} }
     else if(it.type==='rotate'){ const c=charById(it.id);if(c){ const a=Math.atan2(p.y-c.y,p.x-c.x); let deg=it.startObjAngle+(a-it.startPointerAngle)*180/Math.PI; if(e.shiftKey)deg=Math.round(deg/15)*15;c.angle=deg; } }
     else if(it.type==='scale'){ const c=charById(it.id);if(c){const d=Math.max(1,Math.hypot(p.x-c.x,p.y-c.y));c.scale=clamp(it.startScale*(d/it.startDist),.05,20);} }
-    updateInspectorTransformOnly(); render();
+    updateInspectorTransformOnly(); renderScheduled();
   });
-  function finishInteraction(){ if(state.interaction){state.interaction=null;pushHistory();updateLayers();updateInspector();} }
+  function finishInteraction(){ if(state.interaction){ const wasDraw=state.interaction.type==='draw'; state.interaction=null; if(wasDraw){ const last=state.drawings[state.drawings.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; } pushHistory();updateLayers();updateInspector(); render(); } }
   canvas.addEventListener('pointerup',finishInteraction); canvas.addEventListener('pointercancel',finishInteraction);
   window.addEventListener('keydown',(e)=>{
     const tag=(document.activeElement&&document.activeElement.tagName||'').toLowerCase(); const editing=['input','textarea','select'].includes(tag);
@@ -611,8 +657,8 @@
     return [a];
   }
   function currentEffectScope(){ const a=activeChar(); if(!a) return null; if(state.groupEffectEdit && a.groupId){ return {type:'group', group:groupById(a.groupId)}; } return {type:'chars', chars:effectTargets()}; }
-  function applyEffectMutation(fn){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ fn(scope.group); } else { scope.chars.forEach(fn); markManyDirty(scope.chars); } clearRuntimeCaches(); render(); updateLayers(); scheduleHistory(); }
-  function applyCharMutation(fn,dirty=true){ const c=activeChar();if(!c)return;fn(c);if(dirty){markDirty(c);clearRuntimeCaches();}render();updateLayers();scheduleHistory(); }
+  function applyEffectMutation(fn){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ fn(scope.group); } else { scope.chars.forEach(fn); markManyDirty(scope.chars); } groupEffectCache.clear(); renderScheduled(); scheduleHistory(); }
+  function applyCharMutation(fn,dirty=true){ const c=activeChar();if(!c)return;fn(c);if(dirty){markDirty(c);clearRuntimeCaches();}renderScheduled();updateLayers();scheduleHistory(); }
 
   function updateInspectorTransformOnly(){ const c=activeChar();if(!c)return; $('charX').value=Math.round(c.x);$('charY').value=Math.round(c.y);$('charAngle').value=(c.angle||0).toFixed(1);$('charScale').value=(c.scale||1).toFixed(3); $('charScaleX').value=(c.scaleX||1).toFixed(3); $('charScaleY').value=(c.scaleY||1).toFixed(3); $('charSkewX').value=(c.skewX||0).toFixed(1); $('charSkewY').value=(c.skewY||0).toFixed(1); }
   function updateInspector(){
@@ -709,7 +755,10 @@
   function moveLayer(where){const c=activeChar();if(!c)return;let i=state.chars.indexOf(c);if(i<0)return;let ni=i;if(where==='up')ni=Math.min(state.chars.length-1,i+1);if(where==='down')ni=Math.max(0,i-1);if(where==='top')ni=state.chars.length-1;if(where==='bottom')ni=0;if(ni===i)return;state.chars.splice(i,1);state.chars.splice(ni,0,c);updateLayers();render();pushHistory();}
   function deleteSelected(){if(!state.selectedIds.size)return;state.chars=state.chars.filter(c=>!state.selectedIds.has(c.id));setSelection([]);pushHistory();updateAll();}
 
-  function centerSelected(){const chars=[...state.selectedIds].map(charById).filter(Boolean);if(!chars.length)return;const cx=chars.reduce((a,c)=>a+c.x,0)/chars.length,cy=chars.reduce((a,c)=>a+c.y,0)/chars.length;const dx=state.project.width/2-cx,dy=state.project.height/2-cy;chars.forEach(c=>{c.x+=dx;c.y+=dy});render();updateInspector();pushHistory();}
+  function selectionBounds(){ const chars=[...state.selectedIds].map(charById).filter(Boolean); if(!chars.length) return null; let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity; for(const ch of chars){ const b=objectBox(ch), pts=[worldPoint(ch,-b.w/2,-b.h/2),worldPoint(ch,b.w/2,-b.h/2),worldPoint(ch,b.w/2,b.h/2),worldPoint(ch,-b.w/2,b.h/2)]; for(const p of pts){ if(p.x<minX)minX=p.x; if(p.y<minY)minY=p.y; if(p.x>maxX)maxX=p.x; if(p.y>maxY)maxY=p.y; } } return {chars,minX,minY,maxX,maxY,cx:(minX+maxX)/2,cy:(minY+maxY)/2}; }
+  function centerSelected(){ const b=selectionBounds(); if(!b)return; const dx=state.project.width/2-b.cx, dy=state.project.height/2-b.cy; b.chars.forEach(c=>{c.x+=dx;c.y+=dy}); render(); updateInspector(); pushHistory(); }
+  function centerSelectedX(){ const b=selectionBounds(); if(!b)return; const dx=state.project.width/2-b.cx; b.chars.forEach(c=>{c.x+=dx}); render(); updateInspector(); pushHistory(); }
+  function centerSelectedY(){ const b=selectionBounds(); if(!b)return; const dy=state.project.height/2-b.cy; b.chars.forEach(c=>{c.y+=dy}); render(); updateInspector(); pushHistory(); }
 
   function initFonts(){
     const base=['Malgun Gothic','Arial','Verdana','Georgia','Times New Roman','Courier New','sans-serif','serif'];
@@ -831,11 +880,11 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){return {version:'1.2.4',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
-  function snapshot(){return JSON.stringify({project:state.project,chars:state.chars,groups:state.groups,groupEffectEdit:state.groupEffectEdit});}
+  function serializable(){return {version:'1.2.5',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),drawTool:deepClone(state.drawTool),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
+  function snapshot(){return JSON.stringify({project:state.project,chars:state.chars,groups:state.groups,drawings:state.drawings,drawTool:state.drawTool,groupEffectEdit:state.groupEffectEdit});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>80)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
-  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.groupEffectEdit=d.groupEffectEdit!==false;clearRuntimeCaches();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll();}
+  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88 }, d.drawTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;clearRuntimeCaches();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll(); updateDrawToolUI(); }
   function undo(){if(state.historyIndex<=0)return;state.historyIndex--;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function redo(){if(state.historyIndex>=state.history.length-1)return;state.historyIndex++;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function updateHistoryButtons(){$('undoBtn').disabled=state.historyIndex<=0;$('redoBtn').disabled=state.historyIndex>=state.history.length-1;}
@@ -846,7 +895,7 @@
     if(!file)return;
     try{
       const d=JSON.parse(await file.text());if(!d.project||!Array.isArray(d.chars))throw new Error('format');
-      state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.groupEffectEdit=d.groupEffectEdit!==false;
+      state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88 }, d.drawTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;
       if(d.effectPresets)mergeEffectPresets(d.effectPresets);
       for(const f of (d.customFonts||[])){
         if(!state.customFonts.some(x=>x.name===f.name))state.customFonts.push(f);
@@ -871,9 +920,11 @@
       const surf=renderCharSurface(onlyChar,Math.max(2,scale*2));const m=charAffine(onlyChar); const hw=surf.logicalW/2, hh=surf.logicalH/2; const pts=[{x:-hw,y:-hh},{x:hw,y:-hh},{x:hw,y:hh},{x:-hw,y:hh}].map(p=>({x:m.a*p.x+m.c*p.y,y:m.b*p.x+m.d*p.y})); const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y); const boundW=Math.max(...xs)-Math.min(...xs), boundH=Math.max(...ys)-Math.min(...ys); outW=Math.ceil(boundW+8); outH=Math.ceil(boundH+8); offsetX=outW/2-onlyChar.x; offsetY=outH/2-onlyChar.y;
     }
     const out=document.createElement('canvas');out.width=Math.max(1,Math.round(outW*scale));out.height=Math.max(1,Math.round(outH*scale));const g=out.getContext('2d');g.setTransform(scale,0,0,scale,offsetX*scale,offsetY*scale);
+    if(!onlyChar) drawFreehand(g,'below');
     if(!onlyChar) drawGroupEffects(g,'before');
     chars.forEach(ch=>drawChar(g,ch,Math.max(2,scale*2*(ch.scale||1))));
     if(!onlyChar) drawGroupEffects(g,'after');
+    if(!onlyChar) drawFreehand(g,'above');
     return out;
   }
   function canvasBlob(c){return new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(new Error('PNG export failed')),'image/png'));}
@@ -900,7 +951,7 @@
   function copyStyle(){ const c=activeChar(); if(!c){toast('스타일을 복사할 글자를 선택하세요.'); return;} state.styleClipboard=charStyleSnapshot(c); toast('스타일을 복사했습니다.'); }
   function pasteStyle(){ if(!state.styleClipboard){toast('복사된 스타일이 없습니다.'); return;} const targets=state.selectedIds.size?[...state.selectedIds].map(charById).filter(Boolean):[activeChar()].filter(Boolean); if(!targets.length){toast('스타일을 붙여넣을 글자를 선택하세요.'); return;} targets.forEach(ch=>applyStyleSnapshot(ch,state.styleClipboard)); clearRuntimeCaches(); updateAll(); pushHistory(); toast(`${targets.length}개 글자에 스타일을 붙여넣었습니다.`); }
 
-  function updateAll(){updateInspector();updateLayers();render();updateHistoryButtons();}
+  function updateAll(){updateInspector();updateLayers();updateDrawToolUI();render();updateHistoryButtons();}
 
   function bindInspector(){
     $('charText').addEventListener('input',e=>applyCharMutation(c=>c.text=e.target.value||' '));
@@ -933,7 +984,11 @@
     $('saveShadowPresetBtn').addEventListener('click',()=>saveEffectPreset('shadow'));$('applyShadowPresetBtn').addEventListener('click',()=>applyEffectPreset('shadow'));$('deleteShadowPresetBtn').addEventListener('click',()=>deleteEffectPreset('shadow'));
     $('strokePresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('stroke');}});$('shadowPresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('shadow');}});
     $('layerTopBtn').addEventListener('click',()=>moveLayer('top'));$('layerUpBtn').addEventListener('click',()=>moveLayer('up'));$('layerDownBtn').addEventListener('click',()=>moveLayer('down'));$('layerBottomBtn').addEventListener('click',()=>moveLayer('bottom'));
-    $('fitBtn').addEventListener('click',resizeDisplay);$('centerSelectedBtn').addEventListener('click',centerSelected);
+    $('fitBtn').addEventListener('click',resizeDisplay); $('centerSelectedBtn').addEventListener('click',centerSelected); $('centerXBtn').addEventListener('click',centerSelectedX); $('centerYBtn').addEventListener('click',centerSelectedY); ['drawModeBtn','drawModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setDrawMode(!state.drawTool.enabled);}));
+    $('drawColor').addEventListener('input',e=>{ state.drawTool.color=normalizeHexInput(e.target.value,'#FF5AA5'); updateDrawToolUI(); });
+    $('drawColorHex').addEventListener('change',e=>{ state.drawTool.color=normalizeHexInput(e.target.value,state.drawTool.color); updateDrawToolUI(); });
+    $('drawBrushSize').addEventListener('input',e=>{ state.drawTool.size=clamp(Number(e.target.value)||18,1,160); updateDrawToolUI(); });
+    $('undoLastDrawBtn').addEventListener('click',removeLastDrawing); $('clearDrawingsBtn').addEventListener('click',clearAllDrawings); $('drawBelowTextBtn').addEventListener('click',()=>{ state.drawTool.aboveText=!state.drawTool.aboveText; updateDrawToolUI(); render(); });
     $('exportCombinedBtn').addEventListener('click',exportCombined);$('exportCharsBtn').addEventListener('click',exportChars);$('saveProjectBtn').addEventListener('click',saveProject);$('loadProjectInput').addEventListener('change',e=>loadProject(e.target.files[0]));
     $('undoBtn').addEventListener('click',undo);$('redoBtn').addEventListener('click',redo);window.addEventListener('resize',()=>setTimeout(resizeDisplay,50));
     bindInspector();
