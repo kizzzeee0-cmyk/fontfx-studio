@@ -1,4 +1,4 @@
-# FontFX Studio v1.2.0 Web
+# FontFX Studio v1.2.1 Web
 
 GitHub Pages / Cloudflare Pages용 배포 패키지입니다.
 
@@ -30,7 +30,7 @@ Build output directory: dist
 
 `scripts/build.sh` 실행 시 공개에 필요한 파일만 `dist/`로 복사합니다.
 
-## v1.2.0 추가 기능
+## v1.2.1 추가 기능
 
 - 선형 / 원형 글자 그라데이션 채우기
 - 다중 색상 스톱

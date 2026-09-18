@@ -262,7 +262,7 @@ Firefox에서도 대부분 동작하지만 `Canvas` 혼합모드/폰트 렌더�
 ## 폴더 구성
 
 ```text
-fontfx-studio-web-v1.2.0/
+fontfx-studio-web-v1.2.1/
 ├─ index.html                 실행 파일
 ├─ styles.css                 UI 스타일
 ├─ app.js                     편집/효과/저장 엔진
@@ -303,7 +303,7 @@ fontfx-studio-web-v1.2.0/
 
 ## 버전
 
-FontFX Studio v1.2.0 Web — 2026-09-19
+FontFX Studio v1.2.1 Web — 2026-09-19
 
 ### v1.2 추가 기능 요약
 
@@ -316,3 +316,49 @@ FontFX Studio v1.2.0 Web — 2026-09-19
 ## 링크로 사용하는 배포 버전
 
 이 패키지는 GitHub Pages / Cloudflare Pages 배포용입니다. 한 번 배포한 뒤에는 ZIP을 실행할 필요 없이 배포 URL로 접속해 사용합니다. 자세한 배포 순서는 `DEPLOY_GUIDE_KO.md`를 확인하세요.
+
+---
+
+## v1.2.2 웹폰트 입력법
+
+웹 CSS 입력칸에는 아래 형식을 모두 사용할 수 있습니다.
+
+### Google Fonts CSS URL
+
+```text
+https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
+```
+
+### Google Fonts에서 복사한 link 코드 전체
+
+```html
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+```
+
+FontFX가 preconnect 주소를 폰트 CSS로 잘못 인식하지 않고 `rel="stylesheet"` 링크를 자동 선택합니다.
+
+### @import
+
+```css
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+```
+
+### @font-face 코드
+
+```css
+@font-face {
+  font-family: 'MyFont';
+  src: url('https://example.com/MyFont.woff2') format('woff2');
+}
+```
+
+`font-family 이름` 입력칸은 이제 선택 사항입니다. 자동 감지가 되지 않을 때만 정확한 이름을 직접 적어주세요.
+
+### 계속 기본 폰트처럼 보이는 경우
+
+1. 화면의 `가져온 폰트 관리`에서 미리보기 모양을 확인합니다.
+2. CSS 연결은 성공했지만 미리보기가 기본 글꼴이면 CSS 안의 정확한 `font-family` 이름을 직접 입력합니다.
+3. 직접 `.woff/.woff2/.ttf/.otf` URL을 사용할 때는 해당 파일 서버가 CORS를 허용해야 합니다.
+4. CORS가 막힌 폰트라면 파일을 내려받아 `내 컴퓨터 폰트 파일`로 넣는 것이 가장 확실합니다.

@@ -1,4 +1,4 @@
-# FontFX Studio v1.2.0 Web 배포 가이드
+# FontFX Studio v1.2.1 Web 배포 가이드
 
 이 폴더는 **GitHub Pages**와 **Cloudflare Pages**에 그대로 업로드할 수 있도록 정리된 정적 웹사이트 프로젝트입니다.
 
@@ -205,3 +205,16 @@ Build output directory: dist
 ```
 
 그리고 배포 로그에서 `FontFX Studio static site prepared in ./dist` 문구가 출력되는지 확인합니다.
+
+## v1.2.2로 업데이트할 때
+
+기존 Cloudflare Pages 프로젝트를 새로 만들 필요가 없습니다. GitHub 저장소에서 v1.2.2의 파일로 교체하고 커밋하면 Cloudflare가 같은 `pages.dev` 주소에 자동 재배포합니다.
+
+특히 다음 파일은 반드시 새 버전으로 교체하세요.
+
+- `index.html`
+- `app.js`
+- `styles.css`
+- `scripts/build.sh`
+
+`index.html`에는 `app.js?v=1.2.2`, `styles.css?v=1.2.2`가 들어 있어 이전 브라우저 캐시 대신 새 코드를 요청합니다.

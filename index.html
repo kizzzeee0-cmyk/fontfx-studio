@@ -4,16 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.2.0 Web</title>
+  <title>FontFX Studio 1.2.2 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.2.0" />
+  <link rel="stylesheet" href="styles.css?v=1.2.2" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark">F</div>
-      <div><strong>FontFX Studio</strong><span>v1.2.0 Web · Gradient Fill / GitHub Pages / Cloudflare Pages</span></div>
+      <div><strong>FontFX Studio</strong><span>v1.2.2 Web · Stable Webfont Loader / Gradient Fill</span></div>
     </div>
     <div class="top-actions">
       <button id="undoBtn" class="ghost" title="Ctrl+Z">↶ 실행취소</button>
@@ -44,11 +44,19 @@
       <section class="card">
         <h2>2. 폰트 가져오기</h2>
         <label>사용 폰트<select id="fontSelect"></select></label>
-        <details>
+        <details open>
           <summary>Google Fonts / 웹 CSS</summary>
-          <label>CSS 주소<input id="fontCssUrl" type="url" placeholder="https://fonts.googleapis.com/css2?family=..."></label>
-          <label>font-family 이름<input id="fontCssFamily" type="text" placeholder="예: Noto Sans KR"></label>
+          <label>CSS 주소 또는 코드
+            <textarea id="fontCssUrl" rows="4" placeholder="아래 중 아무 형식이나 붙여넣기 가능
+https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
+<link href="https://fonts.googleapis.com/..." rel="stylesheet">
+@import url('https://...');
+@font-face { ... }"></textarea>
+          </label>
+          <label>font-family 이름 <span class="hint-inline">(비워두면 자동 감지 시도)</span><input id="fontCssFamily" type="text" placeholder="예: Noto Sans KR"></label>
           <button id="addCssFontBtn" class="secondary full">웹 CSS 폰트 추가</button>
+          <div id="fontLoadStatus" class="font-status hidden"></div>
+          <p class="hint">Google Fonts에서 복사한 링크 코드나 @import 코드도 그대로 붙여넣을 수 있습니다. CSS에 family 이름이 있으면 자동으로 감지합니다.</p>
         </details>
         <details>
           <summary>직접 WOFF/TTF URL</summary>
@@ -205,6 +213,6 @@
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.2.0"></script>
+  <script src="app.js?v=1.2.2"></script>
 </body>
 </html>
