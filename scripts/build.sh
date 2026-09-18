@@ -4,17 +4,23 @@ set -euo pipefail
 rm -rf dist
 mkdir -p dist
 
-cp index.html dist/
-cp app.js dist/
-cp styles.css dist/
-cp favicon.svg dist/
-cp site.webmanifest dist/
-cp 404.html dist/
-cp .nojekyll dist/
+# 반드시 필요한 파일
+for file in index.html app.js styles.css; do
+  if [ ! -f "$file" ]; then
+    echo "ERROR: required file '$file' was not found in the repository root."
+    exit 1
+  fi
+  cp "$file" dist/
+done
 
-# Cloudflare Pages reads _headers from the output directory.
-if [ -f _headers ]; then
-  cp _headers dist/
-fi
+# 없어도 배포를 중단하지 않는 파일
+for file in favicon.svg site.webmanifest 404.html _headers; do
+  if [ -f "$file" ]; then
+    cp "$file" dist/
+  fi
+done
 
-echo "FontFX Studio static site prepared in ./dist"
+# 저장소에 .nojekyll이 없어도 직접 생성
+: > dist/.nojekyll
+
+echo "FontFX Studio static site prepared successfully in ./dist"
