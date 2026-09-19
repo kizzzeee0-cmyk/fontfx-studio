@@ -54,7 +54,9 @@
     styleClipboard: null,
     effectPresets: { strokes: [], shadows: [] },
     drawings: [],
+    paintStrokes: [],
     drawTool: { enabled: false, color: '#FF5AA5', size: 18, aboveText: true, stabilize: 0.88, brushType: 'pen', assistMode: 'freehand' },
+    paintTool: { enabled: false, color: '#7C5CFF', size: 18, mode: 'paint', assistMode: 'freehand', blend: 'normal', stabilize: 0.88 },
     history: [],
     historyIndex: -1,
     suppressHistory: false
@@ -309,6 +311,16 @@
     return c;
   }
 
+  function renderCharPaintLayer(ch, logicalW, logicalH, pad, q){
+    const actions=paintStrokesForChar(ch); if(!actions.length) return null;
+    const mask=buildGlyphMask(ch, logicalW, logicalH, pad, q);
+    const layer=document.createElement('canvas'); layer.width=Math.max(1,Math.ceil(logicalW*q)); layer.height=Math.max(1,Math.ceil(logicalH*q));
+    const pg=layer.getContext('2d'); pg.scale(q,q);
+    for(const action of actions) drawPaintAction(pg, action, ch);
+    pg.setTransform(1,0,0,1,0,0); pg.globalCompositeOperation='destination-in'; pg.drawImage(mask,0,0);
+    return layer;
+  }
+
   function renderCharSurface(ch, quality=2){
     const q = clamp(quality,1,6);
     const key = `${ch.id}|${ch.cacheVersion||0}|${q.toFixed(2)}`;
@@ -325,6 +337,8 @@
 
     for(let i=outside.length-1;i>=0;i--){ const s=outside[i]; g.save(); g.globalAlpha=clamp(s.opacity/100,0,1); g.globalCompositeOperation=blendToCanvas(s.blend); g.strokeStyle=s.color; g.lineWidth=Math.max(.1,s.width*2); g.strokeText(ch.text,x,y); g.restore(); }
     g.save(); g.globalCompositeOperation='source-over'; g.globalAlpha=1; g.fillStyle=gradientStyle(g,ch,logicalW,logicalH); g.fillText(ch.text,x,y); g.restore();
+    const paintLayer=renderCharPaintLayer(ch,logicalW,logicalH,pad,q);
+    if(paintLayer){ g.save(); g.setTransform(1,0,0,1,0,0); g.drawImage(paintLayer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
     for(let i=center.length-1;i>=0;i--){ const s=center[i]; g.save(); g.globalAlpha=clamp(s.opacity/100,0,1); g.globalCompositeOperation=blendToCanvas(s.blend); g.strokeStyle=s.color; g.lineWidth=Math.max(.1,s.width); g.strokeText(ch.text,x,y); g.restore(); }
 
     if(inside.length){
@@ -571,6 +585,24 @@
     }
     return true;
   }
+  function paintAnchorForSelection(){
+    if(state.selectedIds.size===1){ const ch=activeChar(); if(ch) return {type:'char', id:ch.id}; }
+    if(state.selectedIds.size>1){ const chars=[...state.selectedIds].map(charById).filter(Boolean); const gid=chars.length && chars.every(c=>c.groupId && c.groupId===chars[0].groupId) ? chars[0].groupId : null; if(gid) return {type:'group', id:gid}; }
+    return null;
+  }
+  function localPointFromAnchor(anchor, world){
+    if(anchor?.type==='char'){ const ch=charById(anchor.id); return ch ? localPoint(ch, world) : null; }
+    if(anchor?.type==='group'){ const ref=strokeAnchorRef({anchor}); return ref ? {x:world.x-ref.x, y:world.y-ref.y} : null; }
+    return {x:world.x,y:world.y};
+  }
+  function paintStrokeWorldPoints(stroke){ return strokePointsWorld(stroke); }
+  function paintStrokesForChar(ch){
+    return (state.paintStrokes||[]).filter(stroke=>{
+      if(stroke.anchor?.type==='char') return stroke.anchor.id===ch.id;
+      if(stroke.anchor?.type==='group') return !!(ch.groupId && stroke.anchor.id===ch.groupId);
+      return false;
+    });
+  }
   function getStrokeBounds(points){
     if(!points||!points.length) return null;
     const xs=points.map(p=>p.x), ys=points.map(p=>p.y);
@@ -642,6 +674,18 @@
       targetCtx.globalAlpha=0.08; targetCtx.shadowBlur=0; targetCtx.lineWidth=Math.max(1, stroke.size*1.15); drawStrokePath(targetCtx, points, closed);
     }
     targetCtx.restore();
+  }
+  function drawPaintAction(localCtx, action, ch){
+    const worldPts=paintStrokeWorldPoints(action); if(!worldPts.length) return;
+    const points=worldPts.map(p=>localPoint(ch,p)); if(!points.length) return;
+    localCtx.save();
+    localCtx.lineCap='round'; localCtx.lineJoin='round';
+    localCtx.lineWidth=Number(action.size)||1;
+    localCtx.strokeStyle=action.color||'#7C5CFF'; localCtx.fillStyle=action.color||'#7C5CFF';
+    localCtx.globalAlpha=1;
+    localCtx.globalCompositeOperation = action.mode==='erase' ? 'destination-out' : blendToCanvas(action.blend||'normal');
+    drawStrokePath(localCtx, points, action.assistMode==='circle');
+    localCtx.restore();
   }
   function drawFreehand(targetCtx, placement='all', filter={}){
     for(const stroke of state.drawings){
@@ -722,23 +766,29 @@
     return true;
   }
   function scheduleDrawPausePolish(it){
-    if(!it||it.type!=='draw') return;
+    if(!it || (it.type!=='draw' && it.type!=='paint')) return;
     if(it.pauseTimer) clearTimeout(it.pauseTimer);
     it.pauseTimer=setTimeout(()=>{
-      if(state.interaction!==it || it.type!=='draw') return;
-      const stroke=state.drawings.find(d=>d.id===it.strokeId);
+      if(state.interaction!==it || (it.type!=='draw' && it.type!=='paint')) return;
+      const source=it.type==='paint' ? state.paintStrokes : state.drawings;
+      const stroke=source.find(d=>d.id===it.strokeId);
       if(!stroke) return;
       if(polishStroke(stroke,true)){
         it.lastSmooth=stroke.points[stroke.points.length-1]||it.lastSmooth;
         it.pausePolished=true;
+        if(it.type==='paint') clearRuntimeCaches();
         render();
       }
     },2000);
   }
-  function setDrawMode(enabled){ state.drawTool.enabled=!!enabled; shell.classList.toggle('draw-active',state.drawTool.enabled); ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.drawTool.enabled); if(b) b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }); }
+  function setDrawMode(enabled){ state.drawTool.enabled=!!enabled; if(enabled) state.paintTool.enabled=false; shell.classList.toggle('draw-active',state.drawTool.enabled||state.paintTool.enabled); ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.drawTool.enabled); if(b) b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }); ['paintModeBtn','paintModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.paintTool.enabled); if(b) b.textContent=state.paintTool.enabled?'색칠하기 모드 끄기':'색칠하기 모드'; }); }
+  function setPaintMode(enabled){ state.paintTool.enabled=!!enabled; if(enabled) state.drawTool.enabled=false; shell.classList.toggle('draw-active',state.drawTool.enabled||state.paintTool.enabled); ['paintModeBtn','paintModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.paintTool.enabled); if(b) b.textContent=state.paintTool.enabled?'색칠하기 모드 끄기':'색칠하기 모드'; }); ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.drawTool.enabled); if(b) b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }); }
   function updateDrawToolUI(){ const color=normalizeHexInput(state.drawTool.color,'#FF5AA5'); state.drawTool.color=color; if($('drawColor'))$('drawColor').value=color; if($('drawColorHex'))$('drawColorHex').value=color; if($('drawBrushSize'))$('drawBrushSize').value=state.drawTool.size; if($('drawBrushSizeValue'))$('drawBrushSizeValue').textContent=`${state.drawTool.size} px`; if($('drawBrushType')) $('drawBrushType').value=state.drawTool.brushType||'pen'; if($('drawAssistMode')) $('drawAssistMode').value=state.drawTool.assistMode||'freehand'; const btn=$('drawBelowTextBtn'); if(btn) btn.textContent = state.drawTool.aboveText===false ? '선은 글자 아래에 표시' : '선은 글자 위에 표시'; setDrawMode(state.drawTool.enabled); }
+  function updatePaintToolUI(){ const color=normalizeHexInput(state.paintTool.color,'#7C5CFF'); state.paintTool.color=color; if($('paintColor'))$('paintColor').value=color; if($('paintColorHex'))$('paintColorHex').value=color; if($('paintBrushSize'))$('paintBrushSize').value=state.paintTool.size; if($('paintBrushSizeValue'))$('paintBrushSizeValue').textContent=`${state.paintTool.size} px`; if($('paintToolMode')) $('paintToolMode').value=state.paintTool.mode||'paint'; if($('paintAssistMode')) $('paintAssistMode').value=state.paintTool.assistMode||'freehand'; if($('paintBlendMode')) $('paintBlendMode').value=state.paintTool.blend||'normal'; if($('paintTargetHintBtn')) $('paintTargetHintBtn').textContent = state.paintTool.mode==='erase' ? '지우개 · 선택 글자/그룹 안에서만 삭제' : '선택 글자/그룹 안에만 칠함'; setPaintMode(state.paintTool.enabled); }
   function removeLastDrawing(){ if(!state.drawings.length){toast('삭제할 선이 없습니다.');return;} state.drawings.pop(); render(); pushHistory(); }
   function clearAllDrawings(){ if(!state.drawings.length){toast('지울 선이 없습니다.');return;} state.drawings=[]; render(); pushHistory(); }
+  function removeLastPaint(){ if(!state.paintStrokes.length){toast('삭제할 칠이 없습니다.');return;} state.paintStrokes.pop(); clearRuntimeCaches(); render(); pushHistory(); }
+  function clearAllPaint(){ if(!state.paintStrokes.length){toast('지울 칠이 없습니다.');return;} state.paintStrokes=[]; clearRuntimeCaches(); render(); pushHistory(); }
 
   function render(){
     const z=state.zoom; ctx.setTransform(state.previewDpr*z,0,0,state.previewDpr*z,0,0); ctx.clearRect(0,0,state.project.width,state.project.height);
@@ -772,6 +822,13 @@
 
   canvas.addEventListener('pointerdown',(e)=>{
     canvas.setPointerCapture(e.pointerId); const p=eventPoint(e);
+    if(state.paintTool.enabled){
+      const anchor=paintAnchorForSelection();
+      if(!anchor){ toast('색칠하기는 글자 1개 또는 같은 그룹을 먼저 선택한 뒤 사용할 수 있습니다.'); return; }
+      const initialPoint=localPointFromAnchor(anchor,p); if(!initialPoint) return;
+      const action={id:uid('paint'), color:state.paintTool.color, size:Number(state.paintTool.size)||18, mode:state.paintTool.mode||'paint', blend:state.paintTool.blend||'normal', assistMode:state.paintTool.assistMode||'freehand', anchor, points:[initialPoint]};
+      state.paintStrokes.push(action); state.interaction={type:'paint', strokeId:action.id, lastRaw:p, lastSmooth:p, pauseTimer:null, pausePolished:false, anchor}; scheduleDrawPausePolish(state.interaction); renderScheduled(); return;
+    }
     if(state.drawTool.enabled){
       let anchor=null;
       if(state.selectedIds.size===1){ const ch=activeChar(); if(ch) anchor={type:'char',id:ch.id}; }
@@ -793,6 +850,16 @@
   });
   canvas.addEventListener('pointermove',(e)=>{
     const it=state.interaction;if(!it)return; const p=eventPoint(e);
+    if(it.type==='paint'){
+      const stroke=state.paintStrokes.find(d=>d.id===it.strokeId); if(!stroke) return;
+      const stabilize=clamp(Number(state.paintTool.stabilize)||0.88,0,0.98), alpha=1-stabilize;
+      const prev=it.lastSmooth||p; const nx=prev.x+(p.x-prev.x)*alpha, ny=prev.y+(p.y-prev.y)*alpha;
+      const smoothWorld={x:nx,y:ny};
+      const smooth=localPointFromAnchor(stroke.anchor, smoothWorld); if(!smooth) return;
+      const last=stroke.points[stroke.points.length-1];
+      if(!last || Math.hypot(smooth.x-last.x,smooth.y-last.y) >= Math.max(0.8, stroke.size*0.08)) stroke.points.push(smooth);
+      it.lastRaw=p; it.lastSmooth=smoothWorld; it.pausePolished=false; scheduleDrawPausePolish(it); clearRuntimeCaches(); renderScheduled(); return;
+    }
     if(it.type==='draw'){
       const stroke=state.drawings.find(d=>d.id===it.strokeId); if(!stroke) return;
       const stabilize=clamp(Number(state.drawTool.stabilize)||0.88,0,0.98), alpha=1-stabilize;
@@ -810,7 +877,7 @@
     else if(it.type==='scale'){ const c=charById(it.id);if(c){const d=Math.max(1,Math.hypot(p.x-c.x,p.y-c.y));c.scale=clamp(it.startScale*(d/it.startDist),.05,20);} }
     updateInspectorTransformOnly(); renderScheduled();
   });
-  function finishInteraction(){ if(state.interaction){ const current=state.interaction; const wasDraw=current.type==='draw'; if(current.pauseTimer) clearTimeout(current.pauseTimer); state.interaction=null; if(wasDraw){ const last=state.drawings[state.drawings.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; else if(last) polishStroke(last,false); } pushHistory();updateLayers();updateInspector(); render(); } }
+  function finishInteraction(){ if(state.interaction){ const current=state.interaction; const wasDraw=current.type==='draw'; const wasPaint=current.type==='paint'; if(current.pauseTimer) clearTimeout(current.pauseTimer); state.interaction=null; if(wasDraw){ const last=state.drawings[state.drawings.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; else if(last) polishStroke(last,false); } if(wasPaint){ const last=state.paintStrokes[state.paintStrokes.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; else if(last) polishStroke(last,false); clearRuntimeCaches(); } pushHistory();updateLayers();updateInspector(); render(); } }
   canvas.addEventListener('pointerup',finishInteraction); canvas.addEventListener('pointercancel',finishInteraction);
   window.addEventListener('keydown',(e)=>{
     const tag=(document.activeElement&&document.activeElement.tagName||'').toLowerCase(); const editing=['input','textarea','select'].includes(tag);
@@ -1163,11 +1230,11 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){return {version:'1.3.0',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),drawTool:deepClone(state.drawTool),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
-  function snapshot(){return JSON.stringify({project:state.project,chars:state.chars,groups:state.groups,drawings:state.drawings,drawTool:state.drawTool,groupEffectEdit:state.groupEffectEdit});}
+  function serializable(){return {version:'1.4.0',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
+  function snapshot(){return JSON.stringify({project:state.project,chars:state.chars,groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,drawTool:state.drawTool,paintTool:state.paintTool,groupEffectEdit:state.groupEffectEdit});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>80)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
-  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;clearRuntimeCaches();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll(); updateDrawToolUI(); }
+  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[];state.paintStrokes=d.paintStrokes||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.paintTool=Object.assign({ enabled:false,color:'#7C5CFF',size:18,mode:'paint',assistMode:'freehand',blend:'normal',stabilize:0.88 }, d.paintTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;clearRuntimeCaches();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll(); }
   function undo(){if(state.historyIndex<=0)return;state.historyIndex--;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function redo(){if(state.historyIndex>=state.history.length-1)return;state.historyIndex++;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function updateHistoryButtons(){$('undoBtn').disabled=state.historyIndex<=0;$('redoBtn').disabled=state.historyIndex>=state.history.length-1;}
@@ -1178,7 +1245,7 @@
     if(!file)return;
     try{
       const d=JSON.parse(await file.text());if(!d.project||!Array.isArray(d.chars))throw new Error('format');
-      state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;
+      state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[];state.paintStrokes=d.paintStrokes||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.paintTool=Object.assign({ enabled:false,color:'#7C5CFF',size:18,mode:'paint',assistMode:'freehand',blend:'normal',stabilize:0.88 }, d.paintTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;
       if(d.effectPresets)mergeEffectPresets(d.effectPresets);
       for(const f of (d.customFonts||[])){
         if(!state.customFonts.some(x=>x.name===f.name))state.customFonts.push(f);
@@ -1243,7 +1310,7 @@
   function copyStyle(){ const c=activeChar(); if(!c){toast('스타일을 복사할 글자를 선택하세요.'); return;} state.styleClipboard=charStyleSnapshot(c); toast('스타일을 복사했습니다.'); }
   function pasteStyle(){ if(!state.styleClipboard){toast('복사된 스타일이 없습니다.'); return;} const targets=state.selectedIds.size?[...state.selectedIds].map(charById).filter(Boolean):[activeChar()].filter(Boolean); if(!targets.length){toast('스타일을 붙여넣을 글자를 선택하세요.'); return;} targets.forEach(ch=>applyStyleSnapshot(ch,state.styleClipboard)); clearRuntimeCaches(); updateAll(); pushHistory(); toast(`${targets.length}개 글자에 스타일을 붙여넣었습니다.`); }
 
-  function updateAll(){updateInspector();updateLayers();updateDrawToolUI();render();updateHistoryButtons();}
+  function updateAll(){updateInspector();updateLayers();updateDrawToolUI();updatePaintToolUI();render();updateHistoryButtons();}
 
   function bindInspector(){
     $('charText').addEventListener('input',e=>applyCharMutation(c=>c.text=e.target.value||' '));
@@ -1276,7 +1343,7 @@
     $('saveShadowPresetBtn').addEventListener('click',()=>saveEffectPreset('shadow'));$('applyShadowPresetBtn').addEventListener('click',()=>applyEffectPreset('shadow'));$('deleteShadowPresetBtn').addEventListener('click',()=>deleteEffectPreset('shadow'));
     $('strokePresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('stroke');}});$('shadowPresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('shadow');}});
     $('layerTopBtn').addEventListener('click',()=>moveLayer('top'));$('layerUpBtn').addEventListener('click',()=>moveLayer('up'));$('layerDownBtn').addEventListener('click',()=>moveLayer('down'));$('layerBottomBtn').addEventListener('click',()=>moveLayer('bottom'));
-    $('fitBtn').addEventListener('click',fitPreview); $('centerSelectedBtn').addEventListener('click',centerSelected); $('centerXBtn').addEventListener('click',centerSelectedX); $('centerYBtn').addEventListener('click',centerSelectedY); ['drawModeBtn','drawModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setDrawMode(!state.drawTool.enabled);}));
+    $('fitBtn').addEventListener('click',fitPreview); $('centerSelectedBtn').addEventListener('click',centerSelected); $('centerXBtn').addEventListener('click',centerSelectedX); $('centerYBtn').addEventListener('click',centerSelectedY); ['drawModeBtn','drawModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setDrawMode(!state.drawTool.enabled);})); ['paintModeBtn','paintModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setPaintMode(!state.paintTool.enabled);}));
     $('zoomOutBtn').addEventListener('click',()=>zoomBy(1/1.2)); $('zoomInBtn').addEventListener('click',()=>zoomBy(1.2)); $('zoomValueBtn').addEventListener('click',zoomTo100);
     $('zoomSlider').addEventListener('input',e=>applyPreviewZoom(clamp((Number(e.target.value)||100)/100,.05,4),'manual'));
     viewport.addEventListener('wheel',e=>{ if(!(e.ctrlKey||e.metaKey))return; e.preventDefault(); zoomBy(e.deltaY<0?1.12:1/1.12,{x:e.clientX,y:e.clientY}); },{passive:false});
@@ -1286,6 +1353,13 @@
     $('drawAssistMode').addEventListener('change',e=>{ state.drawTool.assistMode=e.target.value||'freehand'; updateDrawToolUI(); });
     $('drawBrushSize').addEventListener('input',e=>{ state.drawTool.size=clamp(Number(e.target.value)||18,1,160); updateDrawToolUI(); });
     $('undoLastDrawBtn').addEventListener('click',removeLastDrawing); $('clearDrawingsBtn').addEventListener('click',clearAllDrawings); $('drawBelowTextBtn').addEventListener('click',()=>{ state.drawTool.aboveText=!state.drawTool.aboveText; updateDrawToolUI(); render(); });
+    $('paintColor').addEventListener('input',e=>{ state.paintTool.color=normalizeHexInput(e.target.value,'#7C5CFF'); updatePaintToolUI(); });
+    $('paintColorHex').addEventListener('change',e=>{ state.paintTool.color=normalizeHexInput(e.target.value,state.paintTool.color); updatePaintToolUI(); });
+    $('paintToolMode').addEventListener('change',e=>{ state.paintTool.mode=e.target.value||'paint'; updatePaintToolUI(); });
+    $('paintAssistMode').addEventListener('change',e=>{ state.paintTool.assistMode=e.target.value||'freehand'; updatePaintToolUI(); });
+    $('paintBlendMode').addEventListener('change',e=>{ state.paintTool.blend=e.target.value||'normal'; updatePaintToolUI(); });
+    $('paintBrushSize').addEventListener('input',e=>{ state.paintTool.size=clamp(Number(e.target.value)||18,1,160); updatePaintToolUI(); });
+    $('undoLastPaintBtn').addEventListener('click',removeLastPaint); $('clearPaintBtn').addEventListener('click',clearAllPaint);
     $('exportCombinedBtn').addEventListener('click',exportCombined);$('exportCharsBtn').addEventListener('click',exportChars);$('saveProjectBtn').addEventListener('click',saveProject);$('loadProjectInput').addEventListener('change',e=>loadProject(e.target.files[0]));
     $('undoBtn').addEventListener('click',undo);$('redoBtn').addEventListener('click',redo);window.addEventListener('resize',()=>setTimeout(resizeDisplay,50));
     bindInspector();
