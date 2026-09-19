@@ -456,15 +456,22 @@
     for(const ch of members){
       const surf=renderGlyphSurface(ch,Math.min(1.8,q*1.25)); const rect=groupVisualRect(ch,surf); minX=Math.min(minX,rect.minX); minY=Math.min(minY,rect.minY); maxX=Math.max(maxX,rect.maxX); maxY=Math.max(maxY,rect.maxY); entries.push({ch,surf});
     }
+    const attachedDrawings=strokesAttachedToGroup(group.id,false);
+    for(const stroke of attachedDrawings){
+      const b=strokeWorldBounds(stroke); if(!b) continue;
+      minX=Math.min(minX,b.minX); minY=Math.min(minY,b.minY); maxX=Math.max(maxX,b.maxX); maxY=Math.max(maxY,b.maxY);
+    }
     const spread=groupEffectSpread(group); const x=Math.floor(minX-spread), y=Math.floor(minY-spread), w=Math.max(1,Math.ceil(maxX-minX+spread*2)), h=Math.max(1,Math.ceil(maxY-minY+spread*2));
     const layoutEntries=entries.map(({ch,surf})=>({ch,surf,localX:ch.x-x,localY:ch.y-y}));
+    const drawingSig=attachedDrawings.map(stroke=>{ const b=strokeWorldBounds(stroke)||{minX:0,minY:0,maxX:0,maxY:0}; const pts=stroke.points||[]; const first=pts[0]||{x:0,y:0}; const last=pts[pts.length-1]||{x:0,y:0}; return `${stroke.id}:${stroke.anchor?.type||'none'}:${stroke.anchor?.id||''}:${stroke.aboveText===false?0:1}:${stroke.brushType||'pen'}:${stroke.assistMode||'freehand'}:${Number(stroke.size)||0}:${pts.length}:${b.minX.toFixed(1)}:${b.minY.toFixed(1)}:${b.maxX.toFixed(1)}:${b.maxY.toFixed(1)}:${first.x.toFixed(1)}:${first.y.toFixed(1)}:${last.x.toFixed(1)}:${last.y.toFixed(1)}`; }).join('|');
     const memberSig=layoutEntries.map(({ch,localX,localY})=>`${ch.id}:${ch.cacheVersion||0}:${localX.toFixed(2)}:${localY.toFixed(2)}:${(ch.angle||0).toFixed(2)}:${(ch.scale||1).toFixed(3)}:${(ch.scaleX||1).toFixed(3)}:${(ch.scaleY||1).toFixed(3)}:${(ch.skewX||0).toFixed(2)}:${(ch.skewY||0).toFixed(2)}:${ch.visible===false?0:1}`).join('|');
-    return {x,y,w,h,q,spread,entries:layoutEntries,memberSig};
+    return {x,y,w,h,q,spread,entries:layoutEntries,attachedDrawings,memberSig:`${memberSig}||${drawingSig}`};
   }
   function buildGroupMaskFromLayout(layout){
     const mask=document.createElement('canvas'); mask.width=Math.max(1,Math.ceil(layout.w*layout.q)); mask.height=Math.max(1,Math.ceil(layout.h*layout.q));
     const g=mask.getContext('2d'); g.scale(layout.q,layout.q);
     for(const {ch,surf,localX,localY} of layout.entries){ g.save(); g.translate(localX,localY); g.rotate((ch.angle||0)*Math.PI/180); const kx=Math.tan((ch.skewX||0)*Math.PI/180), ky=Math.tan((ch.skewY||0)*Math.PI/180); g.transform(1,ky,kx,1,0,0); g.scale((ch.scale||1)*(ch.scaleX||1),(ch.scale||1)*(ch.scaleY||1)); g.drawImage(surf.canvas,-surf.logicalW/2,-surf.logicalH/2,surf.logicalW,surf.logicalH); g.restore(); }
+    for(const stroke of (layout.attachedDrawings||[])) drawStrokeToMask(g, stroke, {x:layout.x, y:layout.y});
     return mask;
   }
   function dilatedMask(maskCanvas,width,color,opacity,position='outside'){
@@ -568,6 +575,52 @@
     if(!points||!points.length) return null;
     const xs=points.map(p=>p.x), ys=points.map(p=>p.y);
     return {minX:Math.min(...xs),maxX:Math.max(...xs),minY:Math.min(...ys),maxY:Math.max(...ys)};
+  }
+  function strokeMaskPadding(stroke){
+    const size=Math.max(1, Number(stroke?.size)||1);
+    const type=stroke?.brushType||'pen';
+    if(type==='airbrush') return size*1.35;
+    if(type==='highlighter') return size*0.7;
+    return size*0.58;
+  }
+  function strokeWorldBounds(stroke){
+    const pts=strokePointsWorld(stroke); if(!pts.length) return null;
+    const b=getStrokeBounds(pts); if(!b) return null;
+    const pad=strokeMaskPadding(stroke);
+    return {minX:b.minX-pad,maxX:b.maxX+pad,minY:b.minY-pad,maxY:b.maxY+pad};
+  }
+  function strokesAttachedToGroup(groupId, includeAbove=false){
+    return state.drawings.filter(stroke=>{
+      if(!stroke) return false;
+      if(!includeAbove && stroke.aboveText!==false) return false;
+      if(stroke.anchor?.type==='group') return stroke.anchor.id===groupId;
+      if(stroke.anchor?.type==='char'){
+        const ch=charById(stroke.anchor.id);
+        return !!(ch && ch.groupId===groupId);
+      }
+      return false;
+    });
+  }
+  function drawStrokeToMask(targetCtx, stroke, localOffset={x:0,y:0}){
+    const points=strokePointsWorld(stroke).map(p=>({x:p.x-localOffset.x, y:p.y-localOffset.y}));
+    if(!points.length) return;
+    targetCtx.save();
+    targetCtx.lineCap='round'; targetCtx.lineJoin='round';
+    targetCtx.globalAlpha=1; targetCtx.strokeStyle='#fff'; targetCtx.fillStyle='#fff';
+    const type=stroke.brushType||'pen';
+    if(type==='highlighter'){
+      targetCtx.lineWidth=(Number(stroke.size)||1)*1.08;
+    } else if(type==='airbrush'){
+      targetCtx.lineWidth=(Number(stroke.size)||1)*0.72;
+      targetCtx.shadowColor='#fff'; targetCtx.shadowBlur=Math.max(6,(Number(stroke.size)||1)*1.35);
+    } else {
+      targetCtx.lineWidth=Number(stroke.size)||1;
+    }
+    drawStrokePath(targetCtx, points, stroke.assistMode==='circle');
+    if(type==='airbrush'){
+      targetCtx.shadowBlur=0; targetCtx.lineWidth=Math.max(1,(Number(stroke.size)||1)*1.15); drawStrokePath(targetCtx, points, stroke.assistMode==='circle');
+    }
+    targetCtx.restore();
   }
   function applyBrushStyle(targetCtx, stroke){
     const type=stroke.brushType||'pen';
@@ -1110,7 +1163,7 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){return {version:'1.2.9',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),drawTool:deepClone(state.drawTool),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
+  function serializable(){return {version:'1.3.0',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),drawTool:deepClone(state.drawTool),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:state.chars,groups:state.groups,drawings:state.drawings,drawTool:state.drawTool,groupEffectEdit:state.groupEffectEdit});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>80)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
@@ -1152,11 +1205,12 @@
     const out=document.createElement('canvas');out.width=Math.max(1,Math.round(outW*scale));out.height=Math.max(1,Math.round(outH*scale));const g=out.getContext('2d');g.setTransform(scale,0,0,scale,offsetX*scale,offsetY*scale);
     if(!onlyChar){
       drawFreehand(g,'below',{onlyGlobal:true});
+      const seenGroups=new Set();
+      chars.forEach(ch=>{ if(ch.groupId && !seenGroups.has(ch.groupId)){ seenGroups.add(ch.groupId); drawFreehand(g,'below',{onlyGroupId:ch.groupId}); } });
       drawGroupEffects(g,'before');
       chars.forEach(ch=>{ drawFreehand(g,'below',{onlyAnchorCharId:ch.id}); drawChar(g,ch,Math.max(2,scale*2*(ch.scale||1))); drawFreehand(g,'above',{onlyAnchorCharId:ch.id}); });
       drawGroupEffects(g,'after');
-      const seenGroups=new Set();
-      chars.forEach(ch=>{ if(ch.groupId && !seenGroups.has(ch.groupId)){ seenGroups.add(ch.groupId); drawFreehand(g,'below',{onlyGroupId:ch.groupId}); drawFreehand(g,'above',{onlyGroupId:ch.groupId}); } });
+      for(const gid of seenGroups) drawFreehand(g,'above',{onlyGroupId:gid});
       drawFreehand(g,'above',{onlyGlobal:true});
     } else {
       drawFreehand(g,'below',{onlyChar});
