@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.6.0 Web</title>
+  <title>FontFX Studio 1.6.1 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.6.0" />
+  <link rel="stylesheet" href="styles.css?v=1.6.1" />
 </head>
 <body>
   <header class="topbar">
@@ -248,9 +248,12 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
           <p class="hint">스타일 복사/붙여넣기 단축키: Ctrl+Alt+C / Ctrl+Alt+V (위치 제외, 꾸민 값만 복사)</p>
 
           <div class="divider"></div>
-          <div class="card-title-row"><h3>그룹</h3><button id="makeGroupBtn" class="secondary small">선택 글자 그룹화</button></div>
+          <div class="card-title-row"><h3>그룹</h3><button id="makeGroupBtn" class="secondary small">선택 요소 그룹화</button></div>
           <div class="field-row two">
             <button id="ungroupBtn" class="ghost">그룹 해제</button>
+            <button id="toggleGroupLinkBtn" class="ghost">그룹 잠금 해제</button>
+          </div>
+          <div class="field-row one">
             <label class="toggle"><input id="groupEffectToggle" type="checkbox" checked><span>그룹 합체 효과 편집</span></label>
           </div>
           <p id="groupStatus" class="hint">그룹 없음</p>
@@ -318,6 +321,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.6.0"></script>
+  <script src="app.js?v=1.6.1"></script>
 </body>
 </html>
