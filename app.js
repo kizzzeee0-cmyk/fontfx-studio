@@ -61,6 +61,8 @@
   const surfaceCache = new Map();
   const groupEffectCache = new Map();
   const EFFECT_PRESET_STORAGE_KEY = 'fontfx.effectPresets.v1';
+  const FONT_DB_NAME = 'fontfx.savedFonts.v1';
+  const FONT_DB_STORE = 'fonts';
   let toastTimer = null;
   let historyTimer = null;
 
@@ -82,6 +84,40 @@
   function cacheMapSet(map,key,value,max=120){ map.set(key,value); if(map.size>max){ const first=map.keys().next().value; map.delete(first); } return value; }
   function normalizeHexInput(v,fallback='#000000'){ const hex=String(v||'').trim(); return /^#?[0-9a-fA-F]{6}$/.test(hex) ? ('#'+hex.replace('#','')).toUpperCase() : fallback; }
   function renderScheduled(){ if(renderScheduled._raf) return; renderScheduled._raf=requestAnimationFrame(()=>{ renderScheduled._raf=0; render(); }); }
+
+  function openFontDb(){
+    return new Promise((resolve,reject)=>{
+      if(!('indexedDB' in window)){reject(new Error('IndexedDB unavailable'));return;}
+      const req=indexedDB.open(FONT_DB_NAME,1);
+      req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(FONT_DB_STORE))db.createObjectStore(FONT_DB_STORE,{keyPath:'name'});};
+      req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('IndexedDB open failed'));
+    });
+  }
+  async function saveFontRecord(record){
+    try{const db=await openFontDb();await new Promise((resolve,reject)=>{const tx=db.transaction(FONT_DB_STORE,'readwrite');tx.objectStore(FONT_DB_STORE).put(record);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});db.close();return true;}catch(e){console.warn('[FontFX font save]',e);return false;}
+  }
+  async function deleteFontRecord(name){
+    try{const db=await openFontDb();await new Promise((resolve,reject)=>{const tx=db.transaction(FONT_DB_STORE,'readwrite');tx.objectStore(FONT_DB_STORE).delete(name);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});db.close();}catch(e){console.warn('[FontFX font delete]',e);}
+  }
+  async function getSavedFontRecords(){
+    try{const db=await openFontDb();const rows=await new Promise((resolve,reject)=>{const tx=db.transaction(FONT_DB_STORE,'readonly');const req=tx.objectStore(FONT_DB_STORE).getAll();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error);});db.close();return rows;}catch(e){console.warn('[FontFX font restore]',e);return[];}
+  }
+  async function restoreSavedFonts(){
+    const rows=await getSavedFontRecords(); let restored=0,failed=0;
+    for(const rec of rows){
+      try{
+        const name=cleanFamilyName(rec.name); if(!name)continue; disposeFontResource(name);
+        if(rec.type==='local'&&rec.data){const data=rec.data instanceof ArrayBuffer?rec.data:await rec.data.arrayBuffer?.();const ff=new FontFace(name,data);await ff.load();document.fonts.add(ff);state.fontRegistry[name]={type:'local',fontFace:ff};registerFont(name,'local',{saved:true,fileName:rec.fileName||''});restored++;}
+        else if(rec.type==='url'&&rec.url){const ff=new FontFace(name,`url("${String(rec.url).replace(/"/g,'%22')}")`);await ff.load();document.fonts.add(ff);state.fontRegistry[name]={type:'url',fontFace:ff};registerFont(name,'url',{url:rec.url,saved:true});restored++;}
+        else if(rec.type==='css'){
+          if(rec.cssText){const style=injectCssText(rec.cssText,name);state.fontRegistry[name]={type:'css',style};registerFont(name,'css',{url:rec.url||'',cssText:rec.cssText,sourceMethod:rec.sourceMethod||'saved-css',saved:true});restored++;}
+          else if(rec.url){const loaded=await loadCssLink(rec.url,7000);state.fontRegistry[name]={type:'css',link:loaded.link};registerFont(name,'css',{url:rec.url,cssText:'',sourceMethod:'saved-link',saved:true});restored++;}
+        }
+      }catch(e){failed++;console.warn('[FontFX restore font]',rec&&rec.name,e);}
+    }
+    refreshFontSelects();
+    if(restored) setFontLoadStatus(`✓ 저장된 폰트 ${restored}개를 자동 복원했습니다.${failed?` (${failed}개 복원 실패)`:''}`,'ok');
+  }
 
   function normalizeEffectPresetLibrary(value){
     const v=value&&typeof value==='object'?value:{};
@@ -768,7 +804,7 @@
     for(const el of [$('fontSelect'),$('charFontFamily')]){const current=el.value;el.innerHTML='';state.customFonts.forEach(f=>{const o=document.createElement('option');o.value=f.name;o.textContent=f.name+(f.type==='system'?'':' · 가져옴');el.appendChild(o)});if([...el.options].some(o=>o.value===current))el.value=current;}
     if(!$('fontSelect').value)$('fontSelect').value='Malgun Gothic'; renderFontManager();
   }
-  function renderFontManager(){ const box=$('loadedFontList'); if(!box) return; const list=state.customFonts.filter(f=>f.type!=='system'); box.innerHTML=''; if(!list.length){box.innerHTML='<div class="hint">삭제 가능한 가져온 폰트가 아직 없습니다.</div>'; return;} list.forEach(f=>{ const row=document.createElement('div'); row.className='font-item'; row.innerHTML=`<div class="font-meta"><strong>${escapeHtml(f.name)}</strong><span>${f.type==='css'?'웹 CSS':f.type==='url'?'직접 URL':'로컬 파일'}</span><div class="font-preview" style="font-family:'${String(f.name).replace(/'/g,"\'")}'">가나다 ABC 123</div></div><div class="font-actions"><button class="ghost small" data-font-use="${escapeHtml(f.name)}">선택</button><button class="danger small" data-font-del="${escapeHtml(f.name)}">삭제</button></div>`; row.querySelector('[data-font-use]').addEventListener('click',()=>{$('fontSelect').value=f.name; if(activeChar()) applyCharMutation(ch=>ch.fontFamily=f.name);}); row.querySelector('[data-font-del]').addEventListener('click',()=>removeCustomFont(f.name)); box.appendChild(row); }); }
+  function renderFontManager(){ const box=$('loadedFontList'); if(!box) return; const list=state.customFonts.filter(f=>f.type!=='system'); box.innerHTML=''; if(!list.length){box.innerHTML='<div class="hint">삭제 가능한 가져온 폰트가 아직 없습니다.</div>'; return;} list.forEach(f=>{ const row=document.createElement('div'); row.className='font-item'; const kind=f.type==='css'?'웹 CSS':f.type==='url'?'직접 URL':'로컬 파일'; const saved=f.saved===false?'':' · 자동 저장'; row.innerHTML=`<div class="font-meta"><strong>${escapeHtml(f.name)}</strong><span>${kind}${saved}</span><div class="font-preview" style="font-family:'${String(f.name).replace(/'/g,"\'")}'">가나다 ABC 123</div></div><div class="font-actions"><button class="ghost small" data-font-use="${escapeHtml(f.name)}">선택</button><button class="danger small" data-font-del="${escapeHtml(f.name)}">삭제</button></div>`; row.querySelector('[data-font-use]').addEventListener('click',()=>{$('fontSelect').value=f.name; if(activeChar()) applyCharMutation(ch=>ch.fontFamily=f.name);}); row.querySelector('[data-font-del]').addEventListener('click',()=>removeCustomFont(f.name)); box.appendChild(row); }); }
   function disposeFontResource(name){
     const reg=state.fontRegistry[name]; if(!reg)return;
     try{if(reg.fontFace)document.fonts.delete(reg.fontFace);}catch(_){}
@@ -822,8 +858,11 @@
       const meta={url:sourceUrl||'',cssText:input.kind==='css'?cssText:'',sourceMethod:method};
       registerFont(family,'css',meta);
       state.fontRegistry[family]={type:'css',...(resource&&resource.tagName==='LINK'?{link:resource}:{style:resource})};
+      const savedCssText = method==='fetched-css' ? absolutizeCssUrls(cssText,sourceUrl) : (input.kind==='css'?cssText:'');
+      const persisted=await saveFontRecord({name:family,type:'css',url:sourceUrl||'',cssText:savedCssText,sourceMethod:method,savedAt:Date.now()});
+      const savedMeta=state.customFonts.find(f=>f.name===family);if(savedMeta)savedMeta.saved=persisted;
       $('fontCssFamily').value=family;
-      clearRuntimeCaches(); render();
+      refreshFontSelects(); clearRuntimeCaches(); render();
       if(ready){
         setFontLoadStatus(`✓ “${family}” 로드 완료. 폰트 목록에서 선택해 사용할 수 있습니다.`,'ok');
         toast(`웹폰트 “${family}”을 불러왔습니다.`);
@@ -847,7 +886,8 @@
     try{
       disposeFontResource(name);
       const ff=new FontFace(name,`url("${url.replace(/"/g,'%22')}")`); await ff.load(); document.fonts.add(ff);
-      state.fontRegistry[name]={type:'url',fontFace:ff}; registerFont(name,'url',{url});
+      state.fontRegistry[name]={type:'url',fontFace:ff}; registerFont(name,'url',{url,saved:false});
+      const persisted=await saveFontRecord({name,type:'url',url,savedAt:Date.now()}); const savedMeta=state.customFonts.find(f=>f.name===name);if(savedMeta)savedMeta.saved=persisted;refreshFontSelects();
       const ready=await ensureFontReady(name,7000);
       setFontLoadStatus(ready?`✓ “${name}” 직접 URL 폰트 로드 완료.`:`“${name}” 파일은 읽었지만 렌더링 확인이 지연되고 있습니다.` ,ready?'ok':'warn');
       toast(`URL 폰트 “${name}”을 적용할 수 있습니다.`);
@@ -862,15 +902,16 @@
     setFontLoadStatus('로컬 폰트 파일을 읽는 중…','info');
     try{
       disposeFontResource(name); const buf=await file.arrayBuffer(); const ff=new FontFace(name,buf); await ff.load(); document.fonts.add(ff);
-      state.fontRegistry[name]={type:'local',fontFace:ff}; registerFont(name,'local'); await ensureFontReady(name,5000);
+      state.fontRegistry[name]={type:'local',fontFace:ff}; registerFont(name,'local',{saved:false,fileName:file.name});
+      const persisted=await saveFontRecord({name,type:'local',fileName:file.name,data:buf.slice(0),savedAt:Date.now()}); const savedMeta=state.customFonts.find(f=>f.name===name);if(savedMeta)savedMeta.saved=persisted;refreshFontSelects(); await ensureFontReady(name,5000);
       setFontLoadStatus(`✓ 로컬 폰트 “${name}” 로드 완료.`,'ok'); toast(`로컬 폰트 “${name}”을 불러왔습니다.`);
     }catch(e){setFontLoadStatus('이 폰트 파일을 브라우저에서 읽지 못했습니다. 손상 여부 또는 폰트 형식을 확인하세요.','error');toast('이 폰트 파일을 브라우저에서 읽지 못했습니다.');}
   }
   function removeCustomFont(name){
     const font=state.customFonts.find(f=>f.name===name); if(!font||font.type==='system') return;
-    disposeFontResource(name); state.customFonts=state.customFonts.filter(f=>f.name!==name);
+    disposeFontResource(name); state.customFonts=state.customFonts.filter(f=>f.name!==name); deleteFontRecord(name);
     state.chars.forEach(ch=>{if(ch.fontFamily===name){ch.fontFamily='Malgun Gothic';markDirty(ch);}});
-    clearRuntimeCaches();refreshFontSelects();updateAll();pushHistory();toast(`폰트 “${name}”을 삭제했습니다. 사용 중이던 글자는 기본 폰트로 변경했습니다.`);
+    clearRuntimeCaches();refreshFontSelects();updateAll();pushHistory();toast(`폰트 “${name}”을 삭제했습니다. 자동 저장된 사본도 함께 삭제했습니다.`);
   }
 
   function renderHarmony(colors){const box=$('harmonySwatches');box.innerHTML='';colors.forEach(c=>{const b=document.createElement('button');b.className='swatch';b.style.background=c;b.title=c;b.addEventListener('click',()=>applyColorToActive(c));box.appendChild(b);});}
@@ -880,7 +921,7 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){return {version:'1.2.5',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),drawTool:deepClone(state.drawTool),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
+  function serializable(){return {version:'1.2.6',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),drawTool:deepClone(state.drawTool),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:state.chars,groups:state.groups,drawings:state.drawings,drawTool:state.drawTool,groupEffectEdit:state.groupEffectEdit});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>80)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
@@ -994,6 +1035,6 @@
     bindInspector();
   }
 
-  function boot(){loadEffectPresets();initFonts();renderPalettes();renderHarmony(makeHarmony('#9389DE'));renderAllEffectPresetControls();bindEvents();resizeDisplay();pushHistory();updateAll();}
+  async function boot(){loadEffectPresets();initFonts();renderPalettes();renderHarmony(makeHarmony('#9389DE'));renderAllEffectPresetControls();bindEvents();resizeDisplay();pushHistory();updateAll();await restoreSavedFonts();updateAll();}
   boot();
 })();

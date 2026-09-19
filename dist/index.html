@@ -4,16 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.2.5 Web</title>
+  <title>FontFX Studio 1.2.6 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.2.5" />
+  <link rel="stylesheet" href="styles.css?v=1.2.6" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark">F</div>
-      <div><strong>FontFX Studio</strong><span>v1.2.5 Web · Drawing Tool / Alignment / Faster Group Effects</span></div>
+      <div><strong>FontFX Studio</strong><span>v1.2.6 Web · Persistent Font Library</span></div>
     </div>
     <div class="top-actions">
       <button id="undoBtn" class="ghost" title="Ctrl+Z">↶ 실행취소</button>
@@ -70,8 +70,9 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
           <p class="hint">로컬 폰트는 브라우저 메모리에서만 사용되며 외부로 업로드되지 않습니다.</p>
         </details>
         <div class="divider"></div>
-        <div class="card-title-row"><h3>가져온 폰트 관리</h3><span class="hint">삭제 가능</span></div>
+        <div class="card-title-row"><h3>가져온 폰트 관리</h3><span class="hint-inline-badge">자동 저장</span></div>
         <div id="loadedFontList" class="font-list"></div>
+        <p class="hint">가져온 웹 CSS / URL / 로컬 폰트 파일은 이 브라우저에 자동 저장되어 다음 접속 때 복원됩니다. 삭제 버튼을 누르면 저장본도 같이 삭제됩니다.</p>
       </section>
 
       <section class="card">
@@ -257,6 +258,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.2.5"></script>
+  <script src="app.js?v=1.2.6"></script>
 </body>
 </html>
