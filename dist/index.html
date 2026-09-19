@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.4.0 Web</title>
+  <title>FontFX Studio 1.4.1 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.4.0" />
+  <link rel="stylesheet" href="styles.css?v=1.4.1" />
 </head>
 <body>
   <header class="topbar">
@@ -120,6 +120,11 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
           <label>선 보정<select id="paintAssistMode"><option value="freehand">자유선</option><option value="line">선형 보정</option><option value="curve">곡선 보정</option><option value="circle">원형 보정</option></select></label>
           <label>혼합모드<select id="paintBlendMode"><option value="normal">Normal</option><option value="multiply">Multiply</option><option value="screen">Screen</option><option value="overlay">Overlay</option><option value="soft-light">Soft Light</option><option value="hard-light">Hard Light</option><option value="color-dodge">Color Dodge</option><option value="color-burn">Color Burn</option><option value="lighten">Lighten</option><option value="darken">Darken</option></select></label>
         </div>
+        <div class="field-row three">
+          <label>브러시 색 방식<select id="paintFillMode"><option value="solid">단색</option><option value="linear">그라데이션</option></select></label>
+          <label>보조 색상<div class="color-line"><input id="paintColor2" type="color" value="#ffffff"><input id="paintColor2Hex" type="text" value="#FFFFFF" maxlength="7"></div></label>
+          <label>그라데이션 각도(°)<input id="paintGradientAngle" type="number" min="-360" max="360" step="1" value="90"></label>
+        </div>
         <label>브러시 / 지우개 굵기</label>
         <div class="range-row"><input id="paintBrushSize" type="range" min="1" max="160" value="18"><span id="paintBrushSizeValue" class="range-value">18 px</span></div>
         <div class="field-row three draw-tool-actions">
@@ -127,7 +132,19 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
           <button id="clearPaintBtn" class="ghost">전체 칠 삭제</button>
           <button id="paintTargetHintBtn" class="ghost">선택 글자/그룹 안에만 칠함</button>
         </div>
-        <p class="hint">색칠하기는 선택한 글자 또는 같은 그룹 내부에만 클리핑되어 적용됩니다. 획과 내부 그림자에는 직접 칠해지지 않으며, 지우개로 세밀하게 지울 수 있습니다.</p>
+        <div class="field-row three">
+          <label>프리셋 이름<input id="paintPresetName" type="text" placeholder="예: 반짝 보라 브러시"></label>
+          <label>저장된 프리셋<select id="paintPresetSelect"></select></label>
+          <div class="button-cluster"><button id="savePaintPresetBtn" class="secondary">프리셋 저장</button><button id="applyPaintPresetBtn" class="ghost">프리셋 적용</button><button id="deletePaintPresetBtn" class="ghost danger">프리셋 삭제</button></div>
+        </div>
+        <h3>색칠 레이어</h3>
+        <div id="paintLayerList" class="effect-list compact"></div>
+        <div class="field-row three draw-tool-actions">
+          <label>이동 간격(px)<input id="paintMoveStep" type="number" min="1" max="500" step="1" value="10"></label>
+          <div class="button-cluster"><button id="paintMoveLeftBtn" class="ghost">←</button><button id="paintMoveUpBtn" class="ghost">↑</button><button id="paintMoveDownBtn" class="ghost">↓</button><button id="paintMoveRightBtn" class="ghost">→</button></div>
+          <div class="button-cluster"><button id="paintDeleteSelectedBtn" class="ghost danger">선택 칠 삭제</button></div>
+        </div>
+        <p class="hint">색칠하기는 선택한 글자 또는 같은 그룹 내부에만 클리핑되어 적용됩니다. 획과 내부 그림자에는 직접 칠해지지 않으며, 지우개로 세밀하게 지울 수 있습니다. 이제 색칠 레이어를 목록에서 선택하여 이동/삭제할 수 있고, 색칠 전용 프리셋과 그라데이션 브러시도 사용할 수 있습니다.</p>
       </section>
       <section class="card">
         <h2>색상 도우미</h2>
@@ -291,6 +308,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.4.0"></script>
+  <script src="app.js?v=1.4.1"></script>
 </body>
 </html>

@@ -53,10 +53,12 @@
     groupEffectEdit: true,
     styleClipboard: null,
     effectPresets: { strokes: [], shadows: [] },
+    paintPresets: [],
     drawings: [],
     paintStrokes: [],
+    activePaintId: null,
     drawTool: { enabled: false, color: '#FF5AA5', size: 18, aboveText: true, stabilize: 0.88, brushType: 'pen', assistMode: 'freehand' },
-    paintTool: { enabled: false, color: '#7C5CFF', size: 18, mode: 'paint', assistMode: 'freehand', blend: 'normal', stabilize: 0.88 },
+    paintTool: { enabled: false, color: '#7C5CFF', color2: '#FFFFFF', fillMode: 'solid', gradientAngle: 90, size: 18, mode: 'paint', assistMode: 'freehand', blend: 'normal', stabilize: 0.88 },
     history: [],
     historyIndex: -1,
     suppressHistory: false
@@ -65,6 +67,7 @@
   const surfaceCache = new Map();
   const groupEffectCache = new Map();
   const EFFECT_PRESET_STORAGE_KEY = 'fontfx.effectPresets.v1';
+  const PAINT_PRESET_STORAGE_KEY = 'fontfx.paintPresets.v1';
   const FONT_DB_NAME = 'fontfx.savedFonts.v1';
   const FONT_DB_STORE = 'fonts';
   let toastTimer = null;
@@ -183,6 +186,13 @@
     const isStroke=type==='stroke', select=$(isStroke?'strokePresetSelect':'shadowPresetSelect'), bucket=effectPresetBucket(type), ix=bucket.findIndex(p=>p.id===select.value); if(ix<0){toast('삭제할 프리셋을 선택하세요.');return;}
     const name=bucket[ix].name;bucket.splice(ix,1);persistEffectPresets();renderEffectPresetControls(type);toast(`“${name}” 프리셋을 삭제했습니다.`);
   }
+  function normalizePaintPresetLibrary(value){ return Array.isArray(value)?value:[]; }
+  function loadPaintPresets(){ try{state.paintPresets=normalizePaintPresetLibrary(JSON.parse(localStorage.getItem(PAINT_PRESET_STORAGE_KEY)||'[]'));} catch(_){ state.paintPresets=[]; } }
+  function persistPaintPresets(){ try{localStorage.setItem(PAINT_PRESET_STORAGE_KEY,JSON.stringify(state.paintPresets));} catch(_){ toast('색칠 프리셋을 저장하지 못했습니다.'); } }
+  function renderPaintPresetControls(){ const select=$('paintPresetSelect'); if(!select) return; const prev=select.value; select.innerHTML=''; const empty=document.createElement('option'); empty.value=''; empty.textContent=state.paintPresets.length?'색칠 프리셋 선택':'저장된 색칠 프리셋 없음'; select.appendChild(empty); state.paintPresets.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ko')).forEach(p=>{ const o=document.createElement('option'); o.value=p.id; o.textContent=p.name; select.appendChild(o); }); if([...select.options].some(o=>o.value===prev)) select.value=prev; }
+  function savePaintPreset(){ const input=$('paintPresetName'), name=String(input?.value||'').trim(); if(!name){ toast('색칠 프리셋 이름을 입력하세요.'); input&&input.focus(); return; } const existing=state.paintPresets.find(p=>String(p.name).toLowerCase()===name.toLowerCase()); const data={ id:existing?.id||uid('paintPreset'), name, tool:{ color:state.paintTool.color, color2:state.paintTool.color2||'#FFFFFF', fillMode:state.paintTool.fillMode||'solid', gradientAngle:Number(state.paintTool.gradientAngle)||90, size:Number(state.paintTool.size)||18, mode:state.paintTool.mode||'paint', assistMode:state.paintTool.assistMode||'freehand', blend:state.paintTool.blend||'normal' }, updatedAt:new Date().toISOString() }; if(existing) Object.assign(existing,data); else state.paintPresets.push(data); persistPaintPresets(); renderPaintPresetControls(); $('paintPresetSelect').value=data.id; toast(`“${name}” 색칠 프리셋을 ${existing?'덮어썼습니다':'저장했습니다'}.`); }
+  function applyPaintPreset(){ const select=$('paintPresetSelect'), preset=state.paintPresets.find(p=>p.id===select?.value); if(!preset){ toast('적용할 색칠 프리셋을 선택하세요.'); return; } Object.assign(state.paintTool, deepClone(preset.tool||{})); updatePaintToolUI(); toast(`“${preset.name}” 색칠 프리셋을 적용했습니다.`); }
+  function deletePaintPreset(){ const select=$('paintPresetSelect'); const ix=state.paintPresets.findIndex(p=>p.id===select?.value); if(ix<0){ toast('삭제할 색칠 프리셋을 선택하세요.'); return; } const name=state.paintPresets[ix].name; state.paintPresets.splice(ix,1); persistPaintPresets(); renderPaintPresetControls(); toast(`“${name}” 색칠 프리셋을 삭제했습니다.`); }
   function toast(msg){
     const el = $('toast'); el.textContent = msg; el.classList.add('show');
     clearTimeout(toastTimer); toastTimer = setTimeout(()=>el.classList.remove('show'),2200);
@@ -316,7 +326,7 @@
     const mask=buildGlyphMask(ch, logicalW, logicalH, pad, q);
     const layer=document.createElement('canvas'); layer.width=Math.max(1,Math.ceil(logicalW*q)); layer.height=Math.max(1,Math.ceil(logicalH*q));
     const pg=layer.getContext('2d'); pg.scale(q,q);
-    for(const action of actions) drawPaintAction(pg, action, ch);
+    for(const action of actions) drawPaintAction(pg, action, ch, logicalW/2, logicalH/2);
     pg.setTransform(1,0,0,1,0,0); pg.globalCompositeOperation='destination-in'; pg.drawImage(mask,0,0);
     return layer;
   }
@@ -675,15 +685,33 @@
     }
     targetCtx.restore();
   }
-  function drawPaintAction(localCtx, action, ch){
+  function drawPaintAction(localCtx, action, ch, offsetX=0, offsetY=0){
     const worldPts=paintStrokeWorldPoints(action); if(!worldPts.length) return;
-    const points=worldPts.map(p=>localPoint(ch,p)); if(!points.length) return;
+    const points=worldPts.map(p=>{ const lp=localPoint(ch,p); return {x:lp.x+offsetX,y:lp.y+offsetY}; }); if(!points.length) return;
     localCtx.save();
     localCtx.lineCap='round'; localCtx.lineJoin='round';
     localCtx.lineWidth=Number(action.size)||1;
-    localCtx.strokeStyle=action.color||'#7C5CFF'; localCtx.fillStyle=action.color||'#7C5CFF';
+    if(action.mode==='erase'){
+      localCtx.strokeStyle='#000'; localCtx.fillStyle='#000';
+      localCtx.globalCompositeOperation='destination-out';
+    } else {
+      const fillMode=action.fillMode||'solid';
+      let style=action.color||'#7C5CFF';
+      if(fillMode==='linear'){
+        const b=getStrokeBounds(points); if(b){
+          const ang=((Number(action.gradientAngle)||90)-90)*Math.PI/180;
+          const cx=(b.minX+b.maxX)/2, cy=(b.minY+b.maxY)/2, r=Math.max(b.maxX-b.minX,b.maxY-b.minY)/2 || 1;
+          const dx=Math.cos(ang)*r, dy=Math.sin(ang)*r;
+          const grad=localCtx.createLinearGradient(cx-dx,cy-dy,cx+dx,cy+dy);
+          grad.addColorStop(0, action.color||'#7C5CFF');
+          grad.addColorStop(1, action.color2||'#FFFFFF');
+          style=grad;
+        }
+      }
+      localCtx.strokeStyle=style; localCtx.fillStyle=style;
+      localCtx.globalCompositeOperation = blendToCanvas(action.blend||'normal');
+    }
     localCtx.globalAlpha=1;
-    localCtx.globalCompositeOperation = action.mode==='erase' ? 'destination-out' : blendToCanvas(action.blend||'normal');
     drawStrokePath(localCtx, points, action.assistMode==='circle');
     localCtx.restore();
   }
@@ -784,11 +812,15 @@
   function setDrawMode(enabled){ state.drawTool.enabled=!!enabled; if(enabled) state.paintTool.enabled=false; shell.classList.toggle('draw-active',state.drawTool.enabled||state.paintTool.enabled); ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.drawTool.enabled); if(b) b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }); ['paintModeBtn','paintModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.paintTool.enabled); if(b) b.textContent=state.paintTool.enabled?'색칠하기 모드 끄기':'색칠하기 모드'; }); }
   function setPaintMode(enabled){ state.paintTool.enabled=!!enabled; if(enabled) state.drawTool.enabled=false; shell.classList.toggle('draw-active',state.drawTool.enabled||state.paintTool.enabled); ['paintModeBtn','paintModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.paintTool.enabled); if(b) b.textContent=state.paintTool.enabled?'색칠하기 모드 끄기':'색칠하기 모드'; }); ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.drawTool.enabled); if(b) b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }); }
   function updateDrawToolUI(){ const color=normalizeHexInput(state.drawTool.color,'#FF5AA5'); state.drawTool.color=color; if($('drawColor'))$('drawColor').value=color; if($('drawColorHex'))$('drawColorHex').value=color; if($('drawBrushSize'))$('drawBrushSize').value=state.drawTool.size; if($('drawBrushSizeValue'))$('drawBrushSizeValue').textContent=`${state.drawTool.size} px`; if($('drawBrushType')) $('drawBrushType').value=state.drawTool.brushType||'pen'; if($('drawAssistMode')) $('drawAssistMode').value=state.drawTool.assistMode||'freehand'; const btn=$('drawBelowTextBtn'); if(btn) btn.textContent = state.drawTool.aboveText===false ? '선은 글자 아래에 표시' : '선은 글자 위에 표시'; setDrawMode(state.drawTool.enabled); }
-  function updatePaintToolUI(){ const color=normalizeHexInput(state.paintTool.color,'#7C5CFF'); state.paintTool.color=color; if($('paintColor'))$('paintColor').value=color; if($('paintColorHex'))$('paintColorHex').value=color; if($('paintBrushSize'))$('paintBrushSize').value=state.paintTool.size; if($('paintBrushSizeValue'))$('paintBrushSizeValue').textContent=`${state.paintTool.size} px`; if($('paintToolMode')) $('paintToolMode').value=state.paintTool.mode||'paint'; if($('paintAssistMode')) $('paintAssistMode').value=state.paintTool.assistMode||'freehand'; if($('paintBlendMode')) $('paintBlendMode').value=state.paintTool.blend||'normal'; if($('paintTargetHintBtn')) $('paintTargetHintBtn').textContent = state.paintTool.mode==='erase' ? '지우개 · 선택 글자/그룹 안에서만 삭제' : '선택 글자/그룹 안에만 칠함'; setPaintMode(state.paintTool.enabled); }
+  function paintStrokeLabel(stroke,index){ const anchor=stroke.anchor?.type==='group' ? `그룹 ${String(stroke.anchor.id).slice(-4)}` : stroke.anchor?.type==='char' ? `${charById(stroke.anchor.id)?.text||'글자'}(${String(stroke.anchor.id).slice(-4)})` : '전역'; const mode=stroke.mode==='erase'?'지우개':(stroke.fillMode==='linear'?'그라데이션':'단색'); return `칠 ${index+1} · ${anchor} · ${mode}`; }
+  function renderPaintLayerList(){ const box=$('paintLayerList'); if(!box) return; box.innerHTML=''; if(!state.paintStrokes.length){ box.innerHTML='<div class="hint">색칠 레이어가 없습니다. 글자나 같은 그룹을 선택한 뒤 색칠하기 모드를 사용하세요.</div>'; return; } state.paintStrokes.forEach((stroke,index)=>{ const row=document.createElement('button'); row.type='button'; row.className='effect-item'; if(stroke.id===state.activePaintId) row.classList.add('active'); row.style.textAlign='left'; row.innerHTML=`<div class="effect-head"><strong>${paintStrokeLabel(stroke,index)}</strong><div class="effect-buttons"><span class="mini-icon">${stroke.mode==='erase'?'E':(stroke.fillMode==='linear'?'G':'S')}</span></div></div><div class="hint">크기 ${Number(stroke.size)||1}px · 보정 ${stroke.assistMode||'freehand'} · 혼합 ${stroke.blend||'normal'} · 포인트 ${(stroke.points||[]).length}개</div>`; row.addEventListener('click',()=>{ state.activePaintId=stroke.id; renderPaintLayerList(); }); box.appendChild(row); }); }
+  function updatePaintToolUI(){ const color=normalizeHexInput(state.paintTool.color,'#7C5CFF'); state.paintTool.color=color; state.paintTool.color2=normalizeHexInput(state.paintTool.color2||'#FFFFFF','#FFFFFF'); state.paintTool.fillMode=state.paintTool.fillMode||'solid'; state.paintTool.gradientAngle=Number(state.paintTool.gradientAngle)||90; if($('paintColor'))$('paintColor').value=color; if($('paintColorHex'))$('paintColorHex').value=color; if($('paintColor2'))$('paintColor2').value=state.paintTool.color2; if($('paintColor2Hex'))$('paintColor2Hex').value=state.paintTool.color2; if($('paintFillMode'))$('paintFillMode').value=state.paintTool.fillMode; if($('paintGradientAngle'))$('paintGradientAngle').value=state.paintTool.gradientAngle; if($('paintBrushSize'))$('paintBrushSize').value=state.paintTool.size; if($('paintBrushSizeValue'))$('paintBrushSizeValue').textContent=`${state.paintTool.size} px`; if($('paintToolMode')) $('paintToolMode').value=state.paintTool.mode||'paint'; if($('paintAssistMode')) $('paintAssistMode').value=state.paintTool.assistMode||'freehand'; if($('paintBlendMode')) $('paintBlendMode').value=state.paintTool.blend||'normal'; if($('paintTargetHintBtn')) $('paintTargetHintBtn').textContent = state.paintTool.mode==='erase' ? '지우개 · 선택 글자/그룹 안에서만 삭제' : '선택 글자/그룹 안에만 칠함'; renderPaintPresetControls(); renderPaintLayerList(); setPaintMode(state.paintTool.enabled); }
+  function moveSelectedPaintStroke(dx,dy){ const st=(state.paintStrokes||[]).find(x=>x.id===state.activePaintId); if(!st){ toast('먼저 이동할 색칠 레이어를 선택하세요.'); return; } (st.points||[]).forEach(pt=>{ pt.x += dx; pt.y += dy; }); clearRuntimeCaches(); render(); renderPaintLayerList(); pushHistory(); }
+  function deleteSelectedPaintStroke(){ const ix=(state.paintStrokes||[]).findIndex(x=>x.id===state.activePaintId); if(ix<0){ toast('삭제할 색칠 레이어를 먼저 선택하세요.'); return; } state.paintStrokes.splice(ix,1); state.activePaintId=state.paintStrokes[Math.max(0,ix-1)]?.id||null; clearRuntimeCaches(); render(); renderPaintLayerList(); pushHistory(); }
   function removeLastDrawing(){ if(!state.drawings.length){toast('삭제할 선이 없습니다.');return;} state.drawings.pop(); render(); pushHistory(); }
   function clearAllDrawings(){ if(!state.drawings.length){toast('지울 선이 없습니다.');return;} state.drawings=[]; render(); pushHistory(); }
-  function removeLastPaint(){ if(!state.paintStrokes.length){toast('삭제할 칠이 없습니다.');return;} state.paintStrokes.pop(); clearRuntimeCaches(); render(); pushHistory(); }
-  function clearAllPaint(){ if(!state.paintStrokes.length){toast('지울 칠이 없습니다.');return;} state.paintStrokes=[]; clearRuntimeCaches(); render(); pushHistory(); }
+  function removeLastPaint(){ if(!state.paintStrokes.length){toast('삭제할 칠이 없습니다.');return;} state.paintStrokes.pop(); state.activePaintId=state.paintStrokes[state.paintStrokes.length-1]?.id||null; clearRuntimeCaches(); render(); renderPaintLayerList(); pushHistory(); }
+  function clearAllPaint(){ if(!state.paintStrokes.length){toast('지울 칠이 없습니다.');return;} state.paintStrokes=[]; state.activePaintId=null; clearRuntimeCaches(); render(); renderPaintLayerList(); pushHistory(); }
 
   function render(){
     const z=state.zoom; ctx.setTransform(state.previewDpr*z,0,0,state.previewDpr*z,0,0); ctx.clearRect(0,0,state.project.width,state.project.height);
@@ -826,8 +858,8 @@
       const anchor=paintAnchorForSelection();
       if(!anchor){ toast('색칠하기는 글자 1개 또는 같은 그룹을 먼저 선택한 뒤 사용할 수 있습니다.'); return; }
       const initialPoint=localPointFromAnchor(anchor,p); if(!initialPoint) return;
-      const action={id:uid('paint'), color:state.paintTool.color, size:Number(state.paintTool.size)||18, mode:state.paintTool.mode||'paint', blend:state.paintTool.blend||'normal', assistMode:state.paintTool.assistMode||'freehand', anchor, points:[initialPoint]};
-      state.paintStrokes.push(action); state.interaction={type:'paint', strokeId:action.id, lastRaw:p, lastSmooth:p, pauseTimer:null, pausePolished:false, anchor}; scheduleDrawPausePolish(state.interaction); renderScheduled(); return;
+      const action={id:uid('paint'), color:state.paintTool.color, color2:state.paintTool.color2||'#FFFFFF', fillMode:state.paintTool.fillMode||'solid', gradientAngle:Number(state.paintTool.gradientAngle)||90, size:Number(state.paintTool.size)||18, mode:state.paintTool.mode||'paint', blend:state.paintTool.blend||'normal', assistMode:state.paintTool.assistMode||'freehand', anchor, points:[initialPoint]};
+      state.paintStrokes.push(action); state.activePaintId=action.id; state.interaction={type:'paint', strokeId:action.id, lastRaw:p, lastSmooth:p, pauseTimer:null, pausePolished:false, anchor}; clearRuntimeCaches(); renderPaintLayerList(); scheduleDrawPausePolish(state.interaction); renderScheduled(); return;
     }
     if(state.drawTool.enabled){
       let anchor=null;
@@ -877,7 +909,7 @@
     else if(it.type==='scale'){ const c=charById(it.id);if(c){const d=Math.max(1,Math.hypot(p.x-c.x,p.y-c.y));c.scale=clamp(it.startScale*(d/it.startDist),.05,20);} }
     updateInspectorTransformOnly(); renderScheduled();
   });
-  function finishInteraction(){ if(state.interaction){ const current=state.interaction; const wasDraw=current.type==='draw'; const wasPaint=current.type==='paint'; if(current.pauseTimer) clearTimeout(current.pauseTimer); state.interaction=null; if(wasDraw){ const last=state.drawings[state.drawings.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; else if(last) polishStroke(last,false); } if(wasPaint){ const last=state.paintStrokes[state.paintStrokes.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; else if(last) polishStroke(last,false); clearRuntimeCaches(); } pushHistory();updateLayers();updateInspector(); render(); } }
+  function finishInteraction(){ if(state.interaction){ const current=state.interaction; const wasDraw=current.type==='draw'; const wasPaint=current.type==='paint'; if(current.pauseTimer) clearTimeout(current.pauseTimer); state.interaction=null; if(wasDraw){ const last=state.drawings[state.drawings.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; else if(last) polishStroke(last,false); } if(wasPaint){ const last=state.paintStrokes[state.paintStrokes.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; else if(last) polishStroke(last,false); clearRuntimeCaches(); renderPaintLayerList(); } pushHistory();updateLayers();updateInspector(); render(); } }
   canvas.addEventListener('pointerup',finishInteraction); canvas.addEventListener('pointercancel',finishInteraction);
   window.addEventListener('keydown',(e)=>{
     const tag=(document.activeElement&&document.activeElement.tagName||'').toLowerCase(); const editing=['input','textarea','select'].includes(tag);
@@ -1230,11 +1262,11 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){return {version:'1.4.0',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
-  function snapshot(){return JSON.stringify({project:state.project,chars:state.chars,groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,drawTool:state.drawTool,paintTool:state.paintTool,groupEffectEdit:state.groupEffectEdit});}
+  function serializable(){return {version:'1.4.1',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
+  function snapshot(){return JSON.stringify({project:state.project,chars:state.chars,groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,groupEffectEdit:state.groupEffectEdit});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>80)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
-  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[];state.paintStrokes=d.paintStrokes||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.paintTool=Object.assign({ enabled:false,color:'#7C5CFF',size:18,mode:'paint',assistMode:'freehand',blend:'normal',stabilize:0.88 }, d.paintTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;clearRuntimeCaches();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll(); }
+  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[];state.paintStrokes=d.paintStrokes||[]; state.activePaintId=d.activePaintId||state.paintStrokes[state.paintStrokes.length-1]?.id||null; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.paintTool=Object.assign({ enabled:false,color:'#7C5CFF',color2:'#FFFFFF',fillMode:'solid',gradientAngle:90,size:18,mode:'paint',assistMode:'freehand',blend:'normal',stabilize:0.88 }, d.paintTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;clearRuntimeCaches();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll(); }
   function undo(){if(state.historyIndex<=0)return;state.historyIndex--;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function redo(){if(state.historyIndex>=state.history.length-1)return;state.historyIndex++;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function updateHistoryButtons(){$('undoBtn').disabled=state.historyIndex<=0;$('redoBtn').disabled=state.historyIndex>=state.history.length-1;}
@@ -1245,8 +1277,8 @@
     if(!file)return;
     try{
       const d=JSON.parse(await file.text());if(!d.project||!Array.isArray(d.chars))throw new Error('format');
-      state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[];state.paintStrokes=d.paintStrokes||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.paintTool=Object.assign({ enabled:false,color:'#7C5CFF',size:18,mode:'paint',assistMode:'freehand',blend:'normal',stabilize:0.88 }, d.paintTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;
-      if(d.effectPresets)mergeEffectPresets(d.effectPresets);
+      state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[];state.paintStrokes=d.paintStrokes||[]; state.activePaintId=d.activePaintId||state.paintStrokes[state.paintStrokes.length-1]?.id||null; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.paintTool=Object.assign({ enabled:false,color:'#7C5CFF',color2:'#FFFFFF',fillMode:'solid',gradientAngle:90,size:18,mode:'paint',assistMode:'freehand',blend:'normal',stabilize:0.88 }, d.paintTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;
+      if(d.effectPresets)mergeEffectPresets(d.effectPresets); if(d.paintPresets){ state.paintPresets=normalizePaintPresetLibrary(d.paintPresets); persistPaintPresets(); }
       for(const f of (d.customFonts||[])){
         if(!state.customFonts.some(x=>x.name===f.name))state.customFonts.push(f);
         if(f.type==='css'){
@@ -1355,16 +1387,22 @@
     $('undoLastDrawBtn').addEventListener('click',removeLastDrawing); $('clearDrawingsBtn').addEventListener('click',clearAllDrawings); $('drawBelowTextBtn').addEventListener('click',()=>{ state.drawTool.aboveText=!state.drawTool.aboveText; updateDrawToolUI(); render(); });
     $('paintColor').addEventListener('input',e=>{ state.paintTool.color=normalizeHexInput(e.target.value,'#7C5CFF'); updatePaintToolUI(); });
     $('paintColorHex').addEventListener('change',e=>{ state.paintTool.color=normalizeHexInput(e.target.value,state.paintTool.color); updatePaintToolUI(); });
+    $('paintColor2').addEventListener('input',e=>{ state.paintTool.color2=normalizeHexInput(e.target.value,'#FFFFFF'); updatePaintToolUI(); });
+    $('paintColor2Hex').addEventListener('change',e=>{ state.paintTool.color2=normalizeHexInput(e.target.value,state.paintTool.color2||'#FFFFFF'); updatePaintToolUI(); });
+    $('paintFillMode').addEventListener('change',e=>{ state.paintTool.fillMode=e.target.value||'solid'; updatePaintToolUI(); });
+    $('paintGradientAngle').addEventListener('input',e=>{ state.paintTool.gradientAngle=Number(e.target.value)||90; updatePaintToolUI(); });
     $('paintToolMode').addEventListener('change',e=>{ state.paintTool.mode=e.target.value||'paint'; updatePaintToolUI(); });
     $('paintAssistMode').addEventListener('change',e=>{ state.paintTool.assistMode=e.target.value||'freehand'; updatePaintToolUI(); });
     $('paintBlendMode').addEventListener('change',e=>{ state.paintTool.blend=e.target.value||'normal'; updatePaintToolUI(); });
     $('paintBrushSize').addEventListener('input',e=>{ state.paintTool.size=clamp(Number(e.target.value)||18,1,160); updatePaintToolUI(); });
     $('undoLastPaintBtn').addEventListener('click',removeLastPaint); $('clearPaintBtn').addEventListener('click',clearAllPaint);
+    $('savePaintPresetBtn').addEventListener('click',savePaintPreset); $('applyPaintPresetBtn').addEventListener('click',applyPaintPreset); $('deletePaintPresetBtn').addEventListener('click',deletePaintPreset); $('paintPresetName').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); savePaintPreset(); } });
+    $('paintDeleteSelectedBtn').addEventListener('click',deleteSelectedPaintStroke); $('paintMoveLeftBtn').addEventListener('click',()=>moveSelectedPaintStroke(-(Number($('paintMoveStep').value)||10),0)); $('paintMoveRightBtn').addEventListener('click',()=>moveSelectedPaintStroke((Number($('paintMoveStep').value)||10),0)); $('paintMoveUpBtn').addEventListener('click',()=>moveSelectedPaintStroke(0,-(Number($('paintMoveStep').value)||10))); $('paintMoveDownBtn').addEventListener('click',()=>moveSelectedPaintStroke(0,(Number($('paintMoveStep').value)||10)));
     $('exportCombinedBtn').addEventListener('click',exportCombined);$('exportCharsBtn').addEventListener('click',exportChars);$('saveProjectBtn').addEventListener('click',saveProject);$('loadProjectInput').addEventListener('change',e=>loadProject(e.target.files[0]));
     $('undoBtn').addEventListener('click',undo);$('redoBtn').addEventListener('click',redo);window.addEventListener('resize',()=>setTimeout(resizeDisplay,50));
     bindInspector();
   }
 
-  async function boot(){loadEffectPresets();initFonts();renderPalettes();renderHarmony(makeHarmony('#9389DE'));renderAllEffectPresetControls();bindEvents();resizeDisplay();pushHistory();updateAll();await restoreSavedFonts();updateAll();}
+  async function boot(){loadEffectPresets();loadPaintPresets();initFonts();renderPalettes();renderHarmony(makeHarmony('#9389DE'));renderAllEffectPresetControls();renderPaintPresetControls();bindEvents();resizeDisplay();pushHistory();updateAll();await restoreSavedFonts();updateAll();}
   boot();
 })();

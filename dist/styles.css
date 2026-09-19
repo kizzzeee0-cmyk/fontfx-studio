@@ -34,3 +34,5 @@ details{border-top:1px dashed var(--line);margin-top:10px;padding-top:8px}summar
 
 
 .toolbar-wrap{flex-wrap:wrap;justify-content:flex-end}.zoom-control{display:flex;align-items:center;gap:5px;padding:3px 5px;border:1px solid var(--line);border-radius:10px;background:#fafafe}.zoom-control input[type=range]{width:118px;margin:0;accent-color:var(--accent)}.zoom-value{min-width:54px;font-variant-numeric:tabular-nums}.canvas-viewport{overscroll-behavior:contain}.canvas-shell{transform-origin:top left}
+
+.button-cluster{display:flex;gap:6px;flex-wrap:wrap;align-items:end}.effect-item.active{border-color:#6f66c5;box-shadow:0 0 0 2px rgba(111,102,197,.14)}.effect-list.compact .effect-item{padding:8px}.effect-list.compact{max-height:260px;overflow:auto}
