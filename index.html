@@ -4,16 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.2.6 Web</title>
+  <title>FontFX Studio 1.2.8 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.2.6" />
+  <link rel="stylesheet" href="styles.css?v=1.2.8" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark">F</div>
-      <div><strong>FontFX Studio</strong><span>v1.2.6 Web · Persistent Font Library</span></div>
+      <div><strong>FontFX Studio</strong><span>v1.2.7 Web · Preview Zoom / Drawing Precision</span></div>
     </div>
     <div class="top-actions">
       <button id="undoBtn" class="ghost" title="Ctrl+Z">↶ 실행취소</button>
@@ -123,8 +123,14 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
     <section class="workspace">
       <div class="workspace-toolbar">
         <div class="selection-info"><span id="selectionText">선택 없음</span></div>
-        <div class="toolbar-group">
+        <div class="toolbar-group toolbar-wrap">
           <label class="toggle"><input id="groupMoveToggle" type="checkbox"><span>그룹 클릭 시 함께 선택</span></label>
+          <div class="zoom-control" title="편집 화면 배율만 변경하며 PNG 크기에는 영향이 없습니다.">
+            <button id="zoomOutBtn" class="ghost small" title="축소">−</button>
+            <input id="zoomSlider" type="range" min="5" max="400" step="5" value="100" aria-label="미리보기 확대/축소">
+            <button id="zoomInBtn" class="ghost small" title="확대">＋</button>
+            <button id="zoomValueBtn" class="ghost small zoom-value" title="100%로 변경">100%</button>
+          </div>
           <button id="fitBtn" class="ghost small">화면 맞춤</button>
           <button id="centerXBtn" class="ghost small">가로 중앙</button>
           <button id="centerYBtn" class="ghost small">세로 중앙</button>
@@ -135,7 +141,7 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
       <div id="canvasViewport" class="canvas-viewport">
         <div id="canvasShell" class="canvas-shell"><canvas id="designCanvas"></canvas></div>
       </div>
-      <div class="workspace-help">드래그: 이동 · 모서리 핸들: 크기 · 위 원형 핸들: 회전 · Shift+클릭: 다중 선택 · Delete: 삭제 · 그리기 모드에서는 손떨림 방지 최대 상태로 자유 드로잉</div>
+      <div class="workspace-help">드래그: 이동 · 모서리 핸들: 크기 · 위 원형 핸들: 회전 · Shift+클릭: 다중 선택 · Delete: 삭제 · 그리기 모드에서는 손떨림 방지 최대 상태로 자유 드로잉 · 선을 그린 뒤 마우스를 누른 채 2초 머물면 선이 한 번 더 부드럽게 보정됩니다 · Ctrl+마우스 휠: 확대/축소</div>
     </section>
 
     <aside class="panel right-panel">
@@ -258,6 +264,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.2.6"></script>
+  <script src="app.js?v=1.2.8"></script>
 </body>
 </html>
