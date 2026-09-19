@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.4.1 Web</title>
+  <title>FontFX Studio 1.6.0 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.4.1" />
+  <link rel="stylesheet" href="styles.css?v=1.6.0" />
 </head>
 <body>
   <header class="topbar">
@@ -44,6 +44,7 @@
       <section class="card">
         <h2>2. 폰트 가져오기</h2>
         <label>사용 폰트<select id="fontSelect"></select></label>
+        <p class="hint">기본 무료폰트로 카페24 써라운드, 여기어때 잘난체, Rix이누아리두리네, 원스토어 모바일POP을 추가했습니다. 이전에 직접 불러온 폰트는 자동 저장본을 그대로 유지합니다.</p>
         <details open>
           <summary>Google Fonts / 웹 CSS</summary>
           <label>CSS 주소 또는 코드
@@ -83,7 +84,11 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
           <label>글자 간격<input id="letterSpacing" type="number" min="-300" max="1000" value="20"></label>
         </div>
         <button id="createTextBtn" class="primary full">글자별 레이어 생성</button>
-        <p class="hint">각 글자는 독립 레이어입니다. 캔버스에서 직접 드래그·회전·크기 조절할 수 있습니다.</p>
+        <div class="field-row two" style="margin-top:10px;">
+          <label class="button secondary full">사진 불러오기<input id="imageImportInput" type="file" accept="image/*" multiple hidden></label>
+          <div class="hint">사진과 글자를 함께 그룹화하면 합쳐진 외곽으로 그룹 획을 넣을 수 있습니다.</div>
+        </div>
+        <p class="hint">각 글자는 독립 레이어입니다. 캔버스에서 직접 드래그·회전·크기 조절할 수 있습니다. 사진도 불러와 같은 방식으로 이동/회전/크기 조절하고 그룹화할 수 있습니다.</p>
       </section>
 
 
@@ -281,6 +286,11 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
             <p class="hint">혼합모드·색상·불투명도·각도·거리·경계감소·크기·윤곽선·품질까지 저장합니다.</p>
           </div>
           <div id="innerShadowList" class="effect-list"></div>
+
+          <div class="divider"></div>
+          <div class="card-title-row"><h3>외부 그림자</h3><button id="addOuterShadowBtn" class="primary small">+ 외부 그림자 추가</button></div>
+          <p class="hint">색상·방향(각도)·거리·두께/퍼짐·블러·불투명도·혼합모드를 각각 조절할 수 있으며 여러 개를 겹쳐 사용할 수 있습니다.</p>
+          <div id="outerShadowList" class="effect-list"></div>
         </div>
       </section>
 
@@ -308,6 +318,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.4.1"></script>
+  <script src="app.js?v=1.6.0"></script>
 </body>
 </html>
