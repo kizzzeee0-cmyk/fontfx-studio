@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.6.1 Web</title>
+  <title>FontFX Studio 1.7.0 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.6.1" />
+  <link rel="stylesheet" href="styles.css?v=1.7.0" />
 </head>
 <body>
   <header class="topbar">
@@ -158,13 +158,39 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
           <input id="harmonyBaseHex" type="text" value="#9389DE" maxlength="7">
           <button id="makeHarmonyBtn" class="secondary">추천</button>
         </div>
+        <div class="color-line" style="margin-top:8px;">
+          <input id="directHexInput" type="text" value="#9389DE" maxlength="7" placeholder="#RRGGBB">
+          <button id="applyDirectHexBtn" class="secondary">현재 글자에 적용</button>
+          <button id="copyDirectHexBtn" class="ghost">색코드 복사</button>
+        </div>
         <div id="harmonySwatches" class="swatches"></div>
+        <h3>예시 사진 스포이드</h3>
+        <div class="field-row two">
+          <label class="button secondary full">예시 사진 업로드<input id="eyedropperImageInput" type="file" accept="image/*" hidden></label>
+          <button id="clearEyedropperImageBtn" class="ghost">예시 사진 지우기</button>
+        </div>
+        <div class="eyedropper-wrap">
+          <canvas id="eyedropperCanvas" width="320" height="220"></canvas>
+        </div>
+        <div class="field-row two" style="margin-top:8px;">
+          <div class="eyedropper-preview-group">
+            <span id="eyedropperColorPreview" class="eyedropper-preview"></span>
+            <div>
+              <input id="eyedropperHex" type="text" value="#9389DE" maxlength="7">
+              <div id="eyedropperCoord" class="hint">클릭해서 색 추출</div>
+            </div>
+          </div>
+          <div class="button-cluster">
+            <button id="applyEyedropperBtn" class="secondary">추출색 적용</button>
+            <button id="copyEyedropperBtn" class="ghost">추출색 복사</button>
+          </div>
+        </div>
         <h3>입체 추천색</h3>
         <div id="bevelSwatches" class="bevel-list"></div>
         <p class="hint">선택한 채우기 색을 기준으로 상단 빛반사 / 하단 그림자 / 외곽선에 잘 어울리는 추천색을 보여줍니다.</p>
         <h3>완성 팔레트</h3>
         <div id="paletteList" class="palette-list"></div>
-        <p class="hint">색상칩을 클릭하면 현재 선택 글자의 채우기 색에 바로 적용됩니다.</p>
+        <p class="hint">색상칩을 클릭하면 현재 선택 글자의 채우기 색에 바로 적용됩니다. 예시 사진을 올린 뒤 캔버스를 클릭하면 바로 HEX 색코드를 추출할 수 있습니다.</p>
       </section>
     </aside>
 
@@ -321,6 +347,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.6.1"></script>
+  <script src="app.js?v=1.7.0"></script>
 </body>
 </html>
