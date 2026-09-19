@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.2.8 Web</title>
+  <title>FontFX Studio 1.2.9 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.2.8" />
+  <link rel="stylesheet" href="styles.css?v=1.2.9" />
 </head>
 <body>
   <header class="topbar">
@@ -93,6 +93,10 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
           <button id="drawModeBtn2" class="secondary">그리기 모드 켜기/끄기</button>
           <label>브러시 색상<div class="color-line"><input id="drawColor" type="color" value="#ff5aa5"><input id="drawColorHex" type="text" value="#FF5AA5" maxlength="7"></div></label>
         </div>
+        <div class="field-row two">
+          <label>브러시 종류<select id="drawBrushType"><option value="pen">펜</option><option value="highlighter">형광펜</option><option value="airbrush">에어브러시</option></select></label>
+          <label>선 보정<select id="drawAssistMode"><option value="freehand">자유선</option><option value="line">직선 보정</option><option value="curve">곡선 보정</option><option value="circle">원형 보정</option></select></label>
+        </div>
         <label>브러시 굵기</label>
         <div class="range-row"><input id="drawBrushSize" type="range" min="1" max="160" value="18"><span id="drawBrushSizeValue" class="range-value">18 px</span></div>
         <div class="field-row three draw-tool-actions">
@@ -100,7 +104,7 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
           <button id="clearDrawingsBtn" class="ghost">전체 선 삭제</button>
           <button id="drawBelowTextBtn" class="ghost">선은 글자 위에 표시</button>
         </div>
-        <p class="hint">브러시는 기본적으로 손떨림 방지가 강하게 적용됩니다. 작업 중에는 그리기 모드를 켜고 캔버스에 바로 그릴 수 있습니다.</p>
+        <p class="hint">글자나 그룹을 먼저 선택한 뒤 그리기 모드로 그리면 해당 대상에 선이 붙어서 함께 움직입니다. 브러시는 기본적으로 손떨림 방지가 강하게 적용되며, 직선/곡선/원형 보정과 펜·형광펜·에어브러시를 선택할 수 있습니다.</p>
       </section>
 
       <section class="card">
@@ -141,7 +145,7 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
       <div id="canvasViewport" class="canvas-viewport">
         <div id="canvasShell" class="canvas-shell"><canvas id="designCanvas"></canvas></div>
       </div>
-      <div class="workspace-help">드래그: 이동 · 모서리 핸들: 크기 · 위 원형 핸들: 회전 · Shift+클릭: 다중 선택 · Delete: 삭제 · 그리기 모드에서는 손떨림 방지 최대 상태로 자유 드로잉 · 선을 그린 뒤 마우스를 누른 채 2초 머물면 선이 한 번 더 부드럽게 보정됩니다 · Ctrl+마우스 휠: 확대/축소</div>
+      <div class="workspace-help">드래그: 이동 · 모서리 핸들: 크기 · 위 원형 핸들: 회전 · Shift+클릭: 다중 선택 · Delete: 삭제 · 그리기 모드에서는 손떨림 방지 최대 상태로 자유 드로잉 · 선을 그린 뒤 마우스를 누른 채 2초 머물면 선이 한 번 더 부드럽게 보정됩니다 · 글자/그룹 선택 후 그리면 해당 대상에 선이 붙어 함께 이동합니다 · Ctrl+마우스 휠: 확대/축소</div>
     </section>
 
     <aside class="panel right-panel">
@@ -264,6 +268,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.2.8"></script>
+  <script src="app.js?v=1.2.9"></script>
 </body>
 </html>

@@ -54,7 +54,7 @@
     styleClipboard: null,
     effectPresets: { strokes: [], shadows: [] },
     drawings: [],
-    drawTool: { enabled: false, color: '#FF5AA5', size: 18, aboveText: true, stabilize: 0.88 },
+    drawTool: { enabled: false, color: '#FF5AA5', size: 18, aboveText: true, stabilize: 0.88, brushType: 'pen', assistMode: 'freehand' },
     history: [],
     historyIndex: -1,
     suppressHistory: false
@@ -507,24 +507,95 @@
       for(const layer of comp.layers){ targetCtx.save(); targetCtx.globalCompositeOperation=layer.blend; targetCtx.drawImage(layer.canvas,comp.x,comp.y,comp.w,comp.h); targetCtx.restore(); }
     }
   }
-  function drawStrokePath(g, points){
+  function drawStrokePath(g, points, closed=false){
     if(!points||!points.length) return;
     if(points.length===1){ g.beginPath(); g.arc(points[0].x,points[0].y,0.5,0,Math.PI*2); g.fill(); return; }
-    g.beginPath(); g.moveTo(points[0].x, points[0].y);
+    g.beginPath();
+    g.moveTo(points[0].x, points[0].y);
+    if(closed){
+      for(let i=1;i<points.length;i++) g.lineTo(points[i].x, points[i].y);
+      g.closePath();
+      g.stroke();
+      return;
+    }
     for(let i=1;i<points.length-1;i++){
       const midX=(points[i].x+points[i+1].x)/2, midY=(points[i].y+points[i+1].y)/2;
       g.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
     }
     const last=points[points.length-1]; g.lineTo(last.x,last.y); g.stroke();
   }
-  function drawFreehand(targetCtx, placement='all'){
+  function strokeAnchorRef(stroke){
+    if(!stroke||!stroke.anchor) return null;
+    if(stroke.anchor.type==='char') return charById(stroke.anchor.id);
+    if(stroke.anchor.type==='group'){
+      const group=groupById(stroke.anchor.id); if(!group) return null;
+      const members=groupMembers(group.id).filter(Boolean); if(!members.length) return null;
+      const ids=new Set(members.map(m=>m.id));
+      let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+      for(const ch of members){ const b=objectBox(ch), pts=[worldPoint(ch,-b.w/2,-b.h/2),worldPoint(ch,b.w/2,-b.h/2),worldPoint(ch,b.w/2,b.h/2),worldPoint(ch,-b.w/2,b.h/2)]; for(const p of pts){ minX=Math.min(minX,p.x); minY=Math.min(minY,p.y); maxX=Math.max(maxX,p.x); maxY=Math.max(maxY,p.y);} }
+      return {type:'group',x:(minX+maxX)/2,y:(minY+maxY)/2,memberIds:ids};
+    }
+    return null;
+  }
+  function strokePointsWorld(stroke){
+    if(!stroke) return [];
+    if(stroke.anchor?.type==='char'){
+      const ch=charById(stroke.anchor.id); if(!ch) return [];
+      return (stroke.points||[]).map(p=>worldPoint(ch,p.x,p.y));
+    }
+    if(stroke.anchor?.type==='group'){
+      const ref=strokeAnchorRef(stroke); if(!ref) return [];
+      return (stroke.points||[]).map(p=>({x:ref.x+p.x, y:ref.y+p.y}));
+    }
+    return (stroke.points||[]).map(p=>({x:p.x,y:p.y}));
+  }
+  function strokeMatchesFilter(stroke, filter={}){
+    if(filter.onlyChar){
+      return stroke.anchor?.type==='char' && stroke.anchor.id===filter.onlyChar.id;
+    }
+    if(filter.onlyGroupId){
+      return stroke.anchor?.type==='group' && stroke.anchor.id===filter.onlyGroupId;
+    }
+    if(filter.onlyAnchorCharId){
+      return stroke.anchor?.type==='char' && stroke.anchor.id===filter.onlyAnchorCharId;
+    }
+    if(filter.onlyGlobal){
+      return !stroke.anchor;
+    }
+    return true;
+  }
+  function getStrokeBounds(points){
+    if(!points||!points.length) return null;
+    const xs=points.map(p=>p.x), ys=points.map(p=>p.y);
+    return {minX:Math.min(...xs),maxX:Math.max(...xs),minY:Math.min(...ys),maxY:Math.max(...ys)};
+  }
+  function applyBrushStyle(targetCtx, stroke){
+    const type=stroke.brushType||'pen';
+    targetCtx.lineCap='round'; targetCtx.lineJoin='round';
+    if(type==='highlighter'){
+      targetCtx.globalAlpha=0.33; targetCtx.strokeStyle=stroke.color; targetCtx.fillStyle=stroke.color; targetCtx.lineWidth=stroke.size*1.08;
+    } else if(type==='airbrush'){
+      targetCtx.globalAlpha=0.18; targetCtx.strokeStyle=stroke.color; targetCtx.fillStyle=stroke.color; targetCtx.lineWidth=stroke.size*0.72; targetCtx.shadowColor=stroke.color; targetCtx.shadowBlur=Math.max(6,stroke.size*1.35);
+    } else {
+      targetCtx.globalAlpha=1; targetCtx.strokeStyle=stroke.color; targetCtx.fillStyle=stroke.color; targetCtx.lineWidth=stroke.size;
+    }
+  }
+  function drawOneStroke(targetCtx, stroke){
+    const points=strokePointsWorld(stroke); if(!points.length) return;
+    targetCtx.save(); applyBrushStyle(targetCtx, stroke);
+    const closed=stroke.assistMode==='circle';
+    drawStrokePath(targetCtx, points, closed);
+    if((stroke.brushType||'pen')==='airbrush'){
+      targetCtx.globalAlpha=0.08; targetCtx.shadowBlur=0; targetCtx.lineWidth=Math.max(1, stroke.size*1.15); drawStrokePath(targetCtx, points, closed);
+    }
+    targetCtx.restore();
+  }
+  function drawFreehand(targetCtx, placement='all', filter={}){
     for(const stroke of state.drawings){
       const isAbove = stroke.aboveText!==false;
       if(placement!=='all' && ((placement==='below'&&isAbove) || (placement==='above'&&!isAbove))) continue;
-      targetCtx.save();
-      targetCtx.strokeStyle=stroke.color; targetCtx.fillStyle=stroke.color; targetCtx.lineWidth=stroke.size; targetCtx.lineCap='round'; targetCtx.lineJoin='round';
-      drawStrokePath(targetCtx, stroke.points||[]);
-      targetCtx.restore();
+      if(!strokeMatchesFilter(stroke, filter)) continue;
+      drawOneStroke(targetCtx, stroke);
     }
   }
   function smoothStrokePoints(points, passes=1){
@@ -550,8 +621,42 @@
     }
     return out;
   }
+  function convertStrokeToAssistShape(stroke){
+    if(!stroke||!stroke.points||stroke.points.length<2) return false;
+    const pts=stroke.points;
+    const mode=stroke.assistMode||'freehand';
+    if(mode==='line'){
+      stroke.points=[pts[0], pts[pts.length-1]];
+      return true;
+    }
+    if(mode==='curve'){
+      const first=pts[0], last=pts[pts.length-1], mid=pts[Math.floor(pts.length/2)]||pts[0];
+      const out=[]; const steps=Math.max(16, Math.min(64, pts.length*2));
+      for(let i=0;i<=steps;i++){
+        const t=i/steps, mt=1-t;
+        out.push({x:mt*mt*first.x + 2*mt*t*mid.x + t*t*last.x, y:mt*mt*first.y + 2*mt*t*mid.y + t*t*last.y});
+      }
+      stroke.points=out;
+      return true;
+    }
+    if(mode==='circle'){
+      const b=getStrokeBounds(pts); if(!b) return false;
+      const cx=(b.minX+b.maxX)/2, cy=(b.minY+b.maxY)/2, rx=Math.max(2,(b.maxX-b.minX)/2), ry=Math.max(2,(b.maxY-b.minY)/2);
+      const out=[]; const steps=48;
+      for(let i=0;i<steps;i++){
+        const t=i/steps*Math.PI*2;
+        out.push({x:cx+Math.cos(t)*rx, y:cy+Math.sin(t)*ry});
+      }
+      out.push({...out[0]});
+      stroke.points=out;
+      return true;
+    }
+    return false;
+  }
   function polishStroke(stroke, strong=false){
-    if(!stroke||!stroke.points||stroke.points.length<3) return false;
+    if(!stroke||!stroke.points||stroke.points.length<2) return false;
+    if(stroke.assistMode && stroke.assistMode!=='freehand') return convertStrokeToAssistShape(stroke);
+    if(stroke.points.length<3) return false;
     const passes=strong?3:1;
     const minDist=Math.max(0.35,(Number(stroke.size)||1)*(strong?0.022:0.014));
     let pts=smoothStrokePoints(stroke.points, passes);
@@ -578,7 +683,7 @@
     },2000);
   }
   function setDrawMode(enabled){ state.drawTool.enabled=!!enabled; shell.classList.toggle('draw-active',state.drawTool.enabled); ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.drawTool.enabled); if(b) b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }); }
-  function updateDrawToolUI(){ const color=normalizeHexInput(state.drawTool.color,'#FF5AA5'); state.drawTool.color=color; if($('drawColor'))$('drawColor').value=color; if($('drawColorHex'))$('drawColorHex').value=color; if($('drawBrushSize'))$('drawBrushSize').value=state.drawTool.size; if($('drawBrushSizeValue'))$('drawBrushSizeValue').textContent=`${state.drawTool.size} px`; const btn=$('drawBelowTextBtn'); if(btn) btn.textContent = state.drawTool.aboveText===false ? '선은 글자 아래에 표시' : '선은 글자 위에 표시'; setDrawMode(state.drawTool.enabled); }
+  function updateDrawToolUI(){ const color=normalizeHexInput(state.drawTool.color,'#FF5AA5'); state.drawTool.color=color; if($('drawColor'))$('drawColor').value=color; if($('drawColorHex'))$('drawColorHex').value=color; if($('drawBrushSize'))$('drawBrushSize').value=state.drawTool.size; if($('drawBrushSizeValue'))$('drawBrushSizeValue').textContent=`${state.drawTool.size} px`; if($('drawBrushType')) $('drawBrushType').value=state.drawTool.brushType||'pen'; if($('drawAssistMode')) $('drawAssistMode').value=state.drawTool.assistMode||'freehand'; const btn=$('drawBelowTextBtn'); if(btn) btn.textContent = state.drawTool.aboveText===false ? '선은 글자 아래에 표시' : '선은 글자 위에 표시'; setDrawMode(state.drawTool.enabled); }
   function removeLastDrawing(){ if(!state.drawings.length){toast('삭제할 선이 없습니다.');return;} state.drawings.pop(); render(); pushHistory(); }
   function clearAllDrawings(){ if(!state.drawings.length){toast('지울 선이 없습니다.');return;} state.drawings=[]; render(); pushHistory(); }
 
@@ -615,8 +720,12 @@
   canvas.addEventListener('pointerdown',(e)=>{
     canvas.setPointerCapture(e.pointerId); const p=eventPoint(e);
     if(state.drawTool.enabled){
-      const stroke={id:uid('draw'),color:state.drawTool.color,size:Number(state.drawTool.size)||18,aboveText:state.drawTool.aboveText!==false,points:[p]};
-      state.drawings.push(stroke); state.interaction={type:'draw',strokeId:stroke.id,lastRaw:p,lastSmooth:p,pauseTimer:null,pausePolished:false}; scheduleDrawPausePolish(state.interaction); renderScheduled(); return;
+      let anchor=null;
+      if(state.selectedIds.size===1){ const ch=activeChar(); if(ch) anchor={type:'char',id:ch.id}; }
+      else if(state.selectedIds.size>1){ const chars=[...state.selectedIds].map(charById).filter(Boolean); const gid=chars.length && chars.every(c=>c.groupId&&c.groupId===chars[0].groupId) ? chars[0].groupId : null; if(gid) anchor={type:'group',id:gid}; }
+      const initialPoint = anchor?.type==='char' ? localPoint(charById(anchor.id), p) : anchor?.type==='group' ? (()=>{const ref=strokeAnchorRef({anchor}); return ref? {x:p.x-ref.x,y:p.y-ref.y}:p;})() : p;
+      const stroke={id:uid('draw'),color:state.drawTool.color,size:Number(state.drawTool.size)||18,aboveText:state.drawTool.aboveText!==false,brushType:state.drawTool.brushType||'pen',assistMode:state.drawTool.assistMode||'freehand',anchor,points:[initialPoint]};
+      state.drawings.push(stroke); state.interaction={type:'draw',strokeId:stroke.id,lastRaw:p,lastSmooth:p,pauseTimer:null,pausePolished:false,anchor}; scheduleDrawPausePolish(state.interaction); renderScheduled(); return;
     }
     const active=activeChar(); const handle=hitHandle(active,p);
     if(handle){
@@ -635,10 +744,13 @@
       const stroke=state.drawings.find(d=>d.id===it.strokeId); if(!stroke) return;
       const stabilize=clamp(Number(state.drawTool.stabilize)||0.88,0,0.98), alpha=1-stabilize;
       const prev=it.lastSmooth||p; const nx=prev.x+(p.x-prev.x)*alpha, ny=prev.y+(p.y-prev.y)*alpha;
-      const smooth={x:nx,y:ny};
+      const smoothWorld={x:nx,y:ny};
+      let smooth=smoothWorld;
+      if(stroke.anchor?.type==='char'){ const ch=charById(stroke.anchor.id); if(!ch) return; smooth=localPoint(ch,smoothWorld); }
+      else if(stroke.anchor?.type==='group'){ const ref=strokeAnchorRef(stroke); if(!ref) return; smooth={x:smoothWorld.x-ref.x, y:smoothWorld.y-ref.y}; }
       const last=stroke.points[stroke.points.length-1];
       if(!last || Math.hypot(smooth.x-last.x,smooth.y-last.y) >= Math.max(0.8, stroke.size*0.08)) stroke.points.push(smooth);
-      it.lastRaw=p; it.lastSmooth=smooth; it.pausePolished=false; scheduleDrawPausePolish(it); renderScheduled(); return;
+      it.lastRaw=p; it.lastSmooth=smoothWorld; it.pausePolished=false; scheduleDrawPausePolish(it); renderScheduled(); return;
     }
     if(it.type==='move'){ const dx=p.x-it.start.x,dy=p.y-it.start.y; for(const o of it.origins){const c=charById(o.id);if(c&&!c.locked){c.x=o.x+dx;c.y=o.y+dy;}} }
     else if(it.type==='rotate'){ const c=charById(it.id);if(c){ const a=Math.atan2(p.y-c.y,p.x-c.x); let deg=it.startObjAngle+(a-it.startPointerAngle)*180/Math.PI; if(e.shiftKey)deg=Math.round(deg/15)*15;c.angle=deg; } }
@@ -998,11 +1110,11 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){return {version:'1.2.8',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),drawTool:deepClone(state.drawTool),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
+  function serializable(){return {version:'1.2.9',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),drawTool:deepClone(state.drawTool),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:state.chars,groups:state.groups,drawings:state.drawings,drawTool:state.drawTool,groupEffectEdit:state.groupEffectEdit});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>80)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
-  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88 }, d.drawTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;clearRuntimeCaches();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll(); updateDrawToolUI(); }
+  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;clearRuntimeCaches();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll(); updateDrawToolUI(); }
   function undo(){if(state.historyIndex<=0)return;state.historyIndex--;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function redo(){if(state.historyIndex>=state.history.length-1)return;state.historyIndex++;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function updateHistoryButtons(){$('undoBtn').disabled=state.historyIndex<=0;$('redoBtn').disabled=state.historyIndex>=state.history.length-1;}
@@ -1013,7 +1125,7 @@
     if(!file)return;
     try{
       const d=JSON.parse(await file.text());if(!d.project||!Array.isArray(d.chars))throw new Error('format');
-      state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88 }, d.drawTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;
+      state.project=d.project;state.chars=d.chars;state.groups=d.groups||[];state.drawings=d.drawings||[]; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false;
       if(d.effectPresets)mergeEffectPresets(d.effectPresets);
       for(const f of (d.customFonts||[])){
         if(!state.customFonts.some(x=>x.name===f.name))state.customFonts.push(f);
@@ -1038,11 +1150,19 @@
       const surf=renderCharSurface(onlyChar,Math.max(2,scale*2));const m=charAffine(onlyChar); const hw=surf.logicalW/2, hh=surf.logicalH/2; const pts=[{x:-hw,y:-hh},{x:hw,y:-hh},{x:hw,y:hh},{x:-hw,y:hh}].map(p=>({x:m.a*p.x+m.c*p.y,y:m.b*p.x+m.d*p.y})); const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y); const boundW=Math.max(...xs)-Math.min(...xs), boundH=Math.max(...ys)-Math.min(...ys); outW=Math.ceil(boundW+8); outH=Math.ceil(boundH+8); offsetX=outW/2-onlyChar.x; offsetY=outH/2-onlyChar.y;
     }
     const out=document.createElement('canvas');out.width=Math.max(1,Math.round(outW*scale));out.height=Math.max(1,Math.round(outH*scale));const g=out.getContext('2d');g.setTransform(scale,0,0,scale,offsetX*scale,offsetY*scale);
-    if(!onlyChar) drawFreehand(g,'below');
-    if(!onlyChar) drawGroupEffects(g,'before');
-    chars.forEach(ch=>drawChar(g,ch,Math.max(2,scale*2*(ch.scale||1))));
-    if(!onlyChar) drawGroupEffects(g,'after');
-    if(!onlyChar) drawFreehand(g,'above');
+    if(!onlyChar){
+      drawFreehand(g,'below',{onlyGlobal:true});
+      drawGroupEffects(g,'before');
+      chars.forEach(ch=>{ drawFreehand(g,'below',{onlyAnchorCharId:ch.id}); drawChar(g,ch,Math.max(2,scale*2*(ch.scale||1))); drawFreehand(g,'above',{onlyAnchorCharId:ch.id}); });
+      drawGroupEffects(g,'after');
+      const seenGroups=new Set();
+      chars.forEach(ch=>{ if(ch.groupId && !seenGroups.has(ch.groupId)){ seenGroups.add(ch.groupId); drawFreehand(g,'below',{onlyGroupId:ch.groupId}); drawFreehand(g,'above',{onlyGroupId:ch.groupId}); } });
+      drawFreehand(g,'above',{onlyGlobal:true});
+    } else {
+      drawFreehand(g,'below',{onlyChar});
+      drawChar(g,onlyChar,Math.max(2,scale*2*(onlyChar.scale||1)));
+      drawFreehand(g,'above',{onlyChar});
+    }
     return out;
   }
   function canvasBlob(c){return new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(new Error('PNG export failed')),'image/png'));}
@@ -1108,6 +1228,8 @@
     viewport.addEventListener('wheel',e=>{ if(!(e.ctrlKey||e.metaKey))return; e.preventDefault(); zoomBy(e.deltaY<0?1.12:1/1.12,{x:e.clientX,y:e.clientY}); },{passive:false});
     $('drawColor').addEventListener('input',e=>{ state.drawTool.color=normalizeHexInput(e.target.value,'#FF5AA5'); updateDrawToolUI(); });
     $('drawColorHex').addEventListener('change',e=>{ state.drawTool.color=normalizeHexInput(e.target.value,state.drawTool.color); updateDrawToolUI(); });
+    $('drawBrushType').addEventListener('change',e=>{ state.drawTool.brushType=e.target.value||'pen'; updateDrawToolUI(); });
+    $('drawAssistMode').addEventListener('change',e=>{ state.drawTool.assistMode=e.target.value||'freehand'; updateDrawToolUI(); });
     $('drawBrushSize').addEventListener('input',e=>{ state.drawTool.size=clamp(Number(e.target.value)||18,1,160); updateDrawToolUI(); });
     $('undoLastDrawBtn').addEventListener('click',removeLastDrawing); $('clearDrawingsBtn').addEventListener('click',clearAllDrawings); $('drawBelowTextBtn').addEventListener('click',()=>{ state.drawTool.aboveText=!state.drawTool.aboveText; updateDrawToolUI(); render(); });
     $('exportCombinedBtn').addEventListener('click',exportCombined);$('exportCharsBtn').addEventListener('click',exportChars);$('saveProjectBtn').addEventListener('click',saveProject);$('loadProjectInput').addEventListener('change',e=>loadProject(e.target.files[0]));
