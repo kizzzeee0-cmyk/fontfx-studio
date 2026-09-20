@@ -104,12 +104,12 @@
   function isGraphicObject(obj){ return isStampObject(obj)||isDecorObject(obj); }
   function objectLabel(obj){ return isImageObject(obj) ? (obj.name||'사진') : isStampObject(obj) ? (obj.name||'스탬프') : isDecorObject(obj) ? (obj.name||'장식펜') : (obj.text||'글자'); }
   function groupById(id){ return state.groups.find(g => g.id === id) || null; }
-  function ensureGroupDefaults(g){ if(!g) return null; if(g.linked===undefined) g.linked=true; g.strokes=g.strokes||[]; g.innerShadows=g.innerShadows||[]; g.outerShadows=g.outerShadows||[]; return g; }
+  function ensureGroupDefaults(g){ if(!g) return null; if(g.linked===undefined) g.linked=true; g.strokes=g.strokes||[]; g.innerShadows=g.innerShadows||[]; g.outerShadows=g.outerShadows||[]; g.bevels=g.bevels||[]; return g; }
   function groupMembers(groupId){ return groupId ? state.chars.filter(c => c.groupId === groupId) : []; }
   function isGroupLinked(groupId){ const g=ensureGroupDefaults(groupById(groupId)); return g ? g.linked!==false : false; }
   function currentGroup(){ const c=activeChar(); return c&&c.groupId ? groupById(c.groupId) : null; }
-  function charStyleSnapshot(ch){ return {fontFamily:ch.fontFamily,fontSize:ch.fontSize,fontWeight:ch.fontWeight,fill:ch.fill,fillMode:ch.fillMode||'solid',gradient:deepClone(ch.gradient||defaultGradient(ch.fill)),scale:ch.scale||1,scaleX:ch.scaleX||1,scaleY:ch.scaleY||1,skewX:ch.skewX||0,skewY:ch.skewY||0,strokes:deepClone(ch.strokes||[]),innerShadows:deepClone(ch.innerShadows||[]),outerShadows:deepClone(ch.outerShadows||[])}; }
-  function applyStyleSnapshot(ch,snap){ if(!ch||!snap)return; ch.fontFamily=snap.fontFamily; ch.fontSize=snap.fontSize; ch.fontWeight=snap.fontWeight; ch.fill=snap.fill; ch.fillMode=snap.fillMode||'solid'; ch.gradient=deepClone(snap.gradient||defaultGradient(snap.fill)); ch.scale=snap.scale||1; ch.scaleX=snap.scaleX||1; ch.scaleY=snap.scaleY||1; ch.skewX=snap.skewX||0; ch.skewY=snap.skewY||0; ch.strokes=deepClone(snap.strokes||[]); ch.innerShadows=deepClone(snap.innerShadows||[]); ch.outerShadows=deepClone(snap.outerShadows||[]); markDirty(ch); }
+  function charStyleSnapshot(ch){ return {fontFamily:ch.fontFamily,fontSize:ch.fontSize,fontWeight:ch.fontWeight,fill:ch.fill,fillMode:ch.fillMode||'solid',gradient:deepClone(ch.gradient||defaultGradient(ch.fill)),scale:ch.scale||1,scaleX:ch.scaleX||1,scaleY:ch.scaleY||1,skewX:ch.skewX||0,skewY:ch.skewY||0,strokes:deepClone(ch.strokes||[]),innerShadows:deepClone(ch.innerShadows||[]),outerShadows:deepClone(ch.outerShadows||[]),bevels:deepClone(ch.bevels||[])}; }
+  function applyStyleSnapshot(ch,snap){ if(!ch||!snap)return; ch.fontFamily=snap.fontFamily; ch.fontSize=snap.fontSize; ch.fontWeight=snap.fontWeight; ch.fill=snap.fill; ch.fillMode=snap.fillMode||'solid'; ch.gradient=deepClone(snap.gradient||defaultGradient(snap.fill)); ch.scale=snap.scale||1; ch.scaleX=snap.scaleX||1; ch.scaleY=snap.scaleY||1; ch.skewX=snap.skewX||0; ch.skewY=snap.skewY||0; ch.strokes=deepClone(snap.strokes||[]); ch.innerShadows=deepClone(snap.innerShadows||[]); ch.outerShadows=deepClone(snap.outerShadows||[]); ch.bevels=deepClone(snap.bevels||[]); markDirty(ch); }
   function markDirty(ch){ if(ch) ch.cacheVersion = (ch.cacheVersion || 0) + 1; }
   function markManyDirty(chars){ chars.forEach(markDirty); }
   function clearRuntimeCaches(){ surfaceCache.clear(); groupEffectCache.clear(); }
@@ -570,7 +570,7 @@
   function renderStampSurface(obj,quality=2){
     const size=Math.max(16,Number(obj.baseSize||obj.size)||96); const q=clamp(quality,1,6);
     const strokes=(obj.strokes||[]).filter(s=>s.enabled!==false), outside=strokes.filter(s=>s.position==='outside'), center=strokes.filter(s=>s.position==='center'), inside=strokes.filter(s=>s.position==='inside');
-    const outerShadows=(obj.outerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0), innerShadows=(obj.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0);
+    const outerShadows=(obj.outerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0), innerShadows=(obj.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0), bevels=(obj.bevels||[]).filter(s=>s.enabled!==false);
     const strokeExtent=Math.max(0,...outside.map(s=>(Number(s.width)||0)*2+4),...center.map(s=>(Number(s.width)||0)+4),...inside.map(s=>(Number(s.width)||0)+2));
     const outerExtent=Math.max(0,...outerShadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.spread)||0)+(Number(s.size)||0)*2+4));
     const innerExtent=Math.max(0,...innerShadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.size)||0)+4));
@@ -579,17 +579,17 @@
     const c=document.createElement('canvas'); c.width=Math.max(1,Math.ceil(logicalW*q)); c.height=Math.max(1,Math.ceil(logicalH*q)); const g=c.getContext('2d'); g.scale(q,q);
     const mask=document.createElement('canvas'); mask.width=c.width; mask.height=c.height; const mg=mask.getContext('2d'); mg.scale(q,q); mg.fillStyle='#fff'; drawStampMask(mg,obj,logicalW/2,logicalH/2);
     if(outerShadows.length){ for(let i=outerShadows.length-1;i>=0;i--){ const s=outerShadows[i], scaled={...s,distance:(Number(s.distance)||0)*q,spread:(Number(s.spread)||0)*q,size:(Number(s.size)||0)*q}; const layer=outerShadowLayer(mask,scaled); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); } }
-    for(let i=outside.length-1;i>=0;i--){ const s=outside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q*2),s.color,s.opacity,'outside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
-    g.save(); g.fillStyle=obj.fill||'#FFFFFF'; drawStampMask(g,obj,logicalW/2,logicalH/2); g.restore();
+    for(let i=outside.length-1;i>=0;i--){ const s=outside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q),s.color,s.opacity,'outside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
+    const fillLayer=document.createElement('canvas'); fillLayer.width=c.width; fillLayer.height=c.height; const fg=fillLayer.getContext('2d'); fg.scale(q,q); fg.fillStyle=obj.fill||'#FFFFFF'; drawStampMask(fg,obj,logicalW/2,logicalH/2); if(bevels.length){ for(const bevel of bevels){ const layers=bevelLayersFromMask(mask,{...bevel,size:(Number(bevel.size)||0)*q,soften:(Number(bevel.soften)||0)*q}); for(const entry of layers){ fg.save(); fg.setTransform(1,0,0,1,0,0); fg.globalCompositeOperation=entry.blend; fg.drawImage(entry.canvas,0,0); fg.restore(); fg.setTransform(q,0,0,q,0,0); } } } g.save(); g.setTransform(1,0,0,1,0,0); g.drawImage(fillLayer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0);
     for(let i=center.length-1;i>=0;i--){ const s=center[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q),s.color,s.opacity,'center'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
-    for(let i=inside.length-1;i>=0;i--){ const s=inside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q*2),s.color,s.opacity,'inside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
+    for(let i=inside.length-1;i>=0;i--){ const s=inside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q),s.color,s.opacity,'inside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
     if(innerShadows.length){ for(const s of innerShadows){ const scaled={...s,distance:(Number(s.distance)||0)*q,size:(Number(s.size)||0)*q}; const layer=groupInnerShadowLayer(mask,scaled); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); } }
     return cacheMapSet(surfaceCache,key,{canvas:c,logicalW,logicalH,pad},180);
   }
   function renderDecorSurface(obj,quality=2){
     const points=obj.points||[]; const b=getStrokeBounds(points)||{minX:-1,maxX:1,minY:-1,maxY:1}; const q=clamp(quality,1,6);
     const strokes=(obj.strokes||[]).filter(s=>s.enabled!==false), outside=strokes.filter(s=>s.position==='outside'), center=strokes.filter(s=>s.position==='center'), inside=strokes.filter(s=>s.position==='inside');
-    const outerShadows=(obj.outerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0), innerShadows=(obj.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0);
+    const outerShadows=(obj.outerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0), innerShadows=(obj.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0), bevels=(obj.bevels||[]).filter(s=>s.enabled!==false);
     const linePad=(Number(obj.size)||1)/2+4; const strokeExtent=Math.max(0,...outside.map(s=>(Number(s.width)||0)*2+4),...center.map(s=>(Number(s.width)||0)+4),...inside.map(s=>(Number(s.width)||0)+2));
     const outerExtent=Math.max(0,...outerShadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.spread)||0)+(Number(s.size)||0)*2+4)); const innerExtent=Math.max(0,...innerShadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.size)||0)+4));
     const pad=Math.ceil(Math.max(linePad,strokeExtent,outerExtent,innerExtent*0.25)); const logicalW=Math.max(8,(b.maxX-b.minX)+pad*2), logicalH=Math.max(8,(b.maxY-b.minY)+pad*2);
@@ -597,10 +597,10 @@
     const c=document.createElement('canvas'); c.width=Math.max(1,Math.ceil(logicalW*q)); c.height=Math.max(1,Math.ceil(logicalH*q)); const g=c.getContext('2d'); g.scale(q,q);
     const offsetX=pad-b.minX, offsetY=pad-b.minY; const mask=document.createElement('canvas'); mask.width=c.width; mask.height=c.height; const mg=mask.getContext('2d'); mg.scale(q,q); drawDecorBase(mg,obj,offsetX,offsetY,true);
     if(outerShadows.length){ for(let i=outerShadows.length-1;i>=0;i--){ const s=outerShadows[i], scaled={...s,distance:(Number(s.distance)||0)*q,spread:(Number(s.spread)||0)*q,size:(Number(s.size)||0)*q}; const layer=outerShadowLayer(mask,scaled); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); } }
-    for(let i=outside.length-1;i>=0;i--){ const s=outside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q*2),s.color,s.opacity,'outside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
-    drawDecorBase(g,obj,offsetX,offsetY,false);
+    for(let i=outside.length-1;i>=0;i--){ const s=outside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q),s.color,s.opacity,'outside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
+    const decorFill=document.createElement('canvas'); decorFill.width=c.width; decorFill.height=c.height; const dfg=decorFill.getContext('2d'); dfg.scale(q,q); drawDecorBase(dfg,obj,offsetX,offsetY,false); if(bevels.length){ for(const bevel of bevels){ const layers=bevelLayersFromMask(mask,{...bevel,size:(Number(bevel.size)||0)*q,soften:(Number(bevel.soften)||0)*q}); for(const entry of layers){ dfg.save(); dfg.setTransform(1,0,0,1,0,0); dfg.globalCompositeOperation=entry.blend; dfg.drawImage(entry.canvas,0,0); dfg.restore(); dfg.setTransform(q,0,0,q,0,0); } } } g.save(); g.setTransform(1,0,0,1,0,0); g.drawImage(decorFill,0,0); g.restore(); g.setTransform(q,0,0,q,0,0);
     for(let i=center.length-1;i>=0;i--){ const s=center[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q),s.color,s.opacity,'center'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
-    for(let i=inside.length-1;i>=0;i--){ const s=inside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q*2),s.color,s.opacity,'inside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
+    for(let i=inside.length-1;i>=0;i--){ const s=inside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q),s.color,s.opacity,'inside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
     if(innerShadows.length){ for(const s of innerShadows){ const scaled={...s,distance:(Number(s.distance)||0)*q,size:(Number(s.size)||0)*q}; const layer=groupInnerShadowLayer(mask,scaled); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); } }
     return cacheMapSet(surfaceCache,key,{canvas:c,logicalW,logicalH,pad},180);
   }
@@ -618,6 +618,7 @@
     const center=strokes.filter(s=>s.position==='center');
     const inside=strokes.filter(s=>s.position==='inside');
     const outerShadows=(ch.outerShadows||[]).filter(s=>s.enabled!==false && s.opacity>0);
+    const bevels=(ch.bevels||[]).filter(s=>s.enabled!==false);
 
     if(outerShadows.length){
       const mask=buildGlyphMask(ch,logicalW,logicalH,pad,q);
@@ -629,6 +630,13 @@
     }
     for(let i=outside.length-1;i>=0;i--){ const s=outside[i]; g.save(); g.globalAlpha=clamp(s.opacity/100,0,1); g.globalCompositeOperation=blendToCanvas(s.blend); g.strokeStyle=s.color; g.lineWidth=Math.max(.1,s.width*2); g.strokeText(ch.text,x,y); g.restore(); }
     g.save(); g.globalCompositeOperation='source-over'; g.globalAlpha=1; g.fillStyle=gradientStyle(g,ch,logicalW,logicalH); g.fillText(ch.text,x,y); g.restore();
+    if(bevels.length){
+      const mask=buildGlyphMask(ch,logicalW,logicalH,pad,q);
+      for(const bevel of bevels){
+        const layers=bevelLayersFromMask(mask,{...bevel,size:(Number(bevel.size)||0)*q,soften:(Number(bevel.soften)||0)*q});
+        for(const entry of layers){ g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=entry.blend; g.drawImage(entry.canvas,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
+      }
+    }
     const paintLayer=renderCharPaintLayer(ch,logicalW,logicalH,pad,q);
     if(paintLayer){ g.save(); g.setTransform(1,0,0,1,0,0); g.drawImage(paintLayer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
     for(let i=center.length-1;i>=0;i--){ const s=center[i]; g.save(); g.globalAlpha=clamp(s.opacity/100,0,1); g.globalCompositeOperation=blendToCanvas(s.blend); g.strokeStyle=s.color; g.lineWidth=Math.max(.1,s.width); g.strokeText(ch.text,x,y); g.restore(); }
@@ -693,6 +701,7 @@
     const inside=strokes.filter(s=>s.position==='inside');
     const outerShadows=(obj.outerShadows||[]).filter(s=>s.enabled!==false && s.opacity>0);
     const innerShadows=(obj.innerShadows||[]).filter(s=>s.enabled!==false && s.opacity>0);
+    const bevels=(obj.bevels||[]).filter(s=>s.enabled!==false);
     const strokeExtent=Math.max(0,
       ...outside.map(s=>(Number(s.width)||0)*2+4),
       ...center.map(s=>(Number(s.width)||0)+4),
@@ -728,16 +737,17 @@
         g.save(); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore();
       }
     }
-    for(let i=outside.length-1;i>=0;i--){ const s=outside[i]; const layer=dilatedMask(mask,Math.max(.1,(Number(s.width)||0)*rasterScale*2),s.color,s.opacity,'outside'); g.save(); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); }
+    for(let i=outside.length-1;i>=0;i--){ const s=outside[i]; const layer=dilatedMask(mask,Math.max(.1,(Number(s.width)||0)*rasterScale),s.color,s.opacity,'outside'); g.save(); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); }
 
     if(img && img.complete && img.naturalWidth){
       g.drawImage(img,offX,offY,contentW,contentH);
+      if(bevels.length){ for(const bevel of bevels){ const layers=bevelLayersFromMask(mask,{...bevel,size:(Number(bevel.size)||0)*rasterScale,soften:(Number(bevel.soften)||0)*rasterScale}); for(const entry of layers){ g.save(); g.globalCompositeOperation=entry.blend; g.drawImage(entry.canvas,0,0); g.restore(); } } }
     } else {
       g.fillStyle='rgba(147,137,222,.10)'; g.fillRect(offX,offY,contentW,contentH); g.strokeStyle='rgba(147,137,222,.55)'; g.lineWidth=2; g.strokeRect(offX+1,offY+1,Math.max(1,contentW-2),Math.max(1,contentH-2)); g.fillStyle='rgba(58,57,68,.7)'; g.font='700 18px sans-serif'; g.textAlign='center'; g.textBaseline='middle'; g.fillText('IMAGE',offX+contentW/2,offY+contentH/2);
     }
 
     for(let i=center.length-1;i>=0;i--){ const s=center[i]; const layer=dilatedMask(mask,Math.max(.1,(Number(s.width)||0)*rasterScale),s.color,s.opacity,'center'); g.save(); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); }
-    for(let i=inside.length-1;i>=0;i--){ const s=inside[i]; const layer=dilatedMask(mask,Math.max(.1,(Number(s.width)||0)*rasterScale*2),s.color,s.opacity,'inside'); g.save(); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); }
+    for(let i=inside.length-1;i>=0;i--){ const s=inside[i]; const layer=dilatedMask(mask,Math.max(.1,(Number(s.width)||0)*rasterScale),s.color,s.opacity,'inside'); g.save(); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); }
     if(innerShadows.length){
       for(const s of innerShadows){
         const scaled={...s,distance:(Number(s.distance)||0)*rasterScale,size:(Number(s.size)||0)*rasterScale};
@@ -821,11 +831,12 @@
     return cacheMapSet(surfaceCache,key,{canvas:c,logicalW,logicalH},180);
   }
   function groupEffectSpread(group){
-    const strokes=(group.strokes||[]).filter(s=>s.enabled!==false); const shadows=(group.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0); const outer=(group.outerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0);
+    const strokes=(group.strokes||[]).filter(s=>s.enabled!==false); const shadows=(group.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0); const outer=(group.outerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0); const bevels=(group.bevels||[]).filter(s=>s.enabled!==false);
     const strokeSpread=Math.max(0,...strokes.map(s=>Number(s.width)||0));
     const shadowSpread=Math.max(0,...shadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.size)||0)*2+8));
     const outerSpread=Math.max(0,...outer.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.spread)||0)+(Number(s.size)||0)*2+8));
-    return Math.ceil(Math.max(8,strokeSpread+4,shadowSpread,outerSpread));
+    const bevelSpread=Math.max(0,...bevels.map(s=>(Number(s.size)||0)+(Number(s.soften)||0)+6));
+    return Math.ceil(Math.max(8,strokeSpread+4,shadowSpread,outerSpread,bevelSpread));
   }
   function groupVisualRect(ch, surf){
     const hw=surf.logicalW/2, hh=surf.logicalH/2;
@@ -859,14 +870,39 @@
     for(const stroke of (layout.attachedDrawings||[])) drawStrokeToMask(g, stroke, {x:layout.x, y:layout.y});
     return mask;
   }
-  function dilatedMask(maskCanvas,width,color,opacity,position='outside'){
+  function erodedMask(maskCanvas,width){
     const layer=document.createElement('canvas'); layer.width=maskCanvas.width; layer.height=maskCanvas.height; const g=layer.getContext('2d');
-    const scaledWidth=Math.max(.1,width); const steps=Math.max(8,Math.round(Math.min(32,scaledWidth*2.1))); const rings=Math.max(1,Math.ceil(Math.min(56,scaledWidth*0.9)));
-    for(let r=1;r<=rings;r++){ const rad=r; for(let i=0;i<steps;i++){ const t=i/steps*Math.PI*2, dx=Math.cos(t)*rad, dy=Math.sin(t)*rad; g.drawImage(maskCanvas,dx,dy); } }
-    g.globalCompositeOperation='source-in'; g.fillStyle=color; g.globalAlpha=clamp(opacity/100,0,1); g.fillRect(0,0,layer.width,layer.height); g.globalAlpha=1;
-    if(position==='outside'){ g.globalCompositeOperation='destination-out'; g.drawImage(maskCanvas,0,0); }
-    else if(position==='inside' || position==='center'){ g.globalCompositeOperation='destination-in'; g.drawImage(maskCanvas,0,0); }
+    g.drawImage(maskCanvas,0,0);
+    const rad=Math.max(0,Number(width)||0); if(rad<=0) return layer;
+    const rings=Math.max(1,Math.ceil(Math.min(48,rad)));
+    const steps=Math.max(12,Math.round(Math.min(40,rad*2.2)));
+    g.globalCompositeOperation='destination-in';
+    for(let r=1;r<=rings;r++){
+      const rr=Math.min(rad,r);
+      for(let i=0;i<steps;i++){
+        const t=i/steps*Math.PI*2; g.drawImage(maskCanvas,Math.cos(t)*rr,Math.sin(t)*rr);
+      }
+    }
+    g.globalCompositeOperation='source-over';
     return layer;
+  }
+  function colorizeMask(maskCanvas,color,opacity){
+    const layer=document.createElement('canvas'); layer.width=maskCanvas.width; layer.height=maskCanvas.height; const g=layer.getContext('2d');
+    g.drawImage(maskCanvas,0,0); g.globalCompositeOperation='source-in'; g.fillStyle=color||'#000000'; g.globalAlpha=clamp((Number(opacity)||0)/100,0,1); g.fillRect(0,0,layer.width,layer.height); g.globalAlpha=1; g.globalCompositeOperation='source-over'; return layer;
+  }
+  function dilatedMask(maskCanvas,width,color,opacity,position='outside'){
+    const w=Math.max(.1,Number(width)||.1);
+    let band=document.createElement('canvas'); band.width=maskCanvas.width; band.height=maskCanvas.height; let g=band.getContext('2d');
+    if(position==='outside'){
+      const expanded=expandedMask(maskCanvas,w); g.drawImage(expanded,0,0); g.globalCompositeOperation='destination-out'; g.drawImage(maskCanvas,0,0);
+    }else if(position==='inside'){
+      const eroded=erodedMask(maskCanvas,w); g.drawImage(maskCanvas,0,0); g.globalCompositeOperation='destination-out'; g.drawImage(eroded,0,0);
+    }else {
+      const half=Math.max(.1,w/2); const expanded=expandedMask(maskCanvas,half); const eroded=erodedMask(maskCanvas,half);
+      g.drawImage(expanded,0,0); g.globalCompositeOperation='destination-out'; g.drawImage(eroded,0,0);
+    }
+    g.globalCompositeOperation='source-over';
+    return colorizeMask(band,color,opacity);
   }
   function expandedMask(maskCanvas,width){
     const layer=document.createElement('canvas'); layer.width=maskCanvas.width; layer.height=maskCanvas.height; const g=layer.getContext('2d');
@@ -892,22 +928,75 @@
     g.globalCompositeOperation='destination-in'; g.drawImage(maskCanvas,0,0);
     return layer;
   }
+
+  function alphaToCanvas(imageData){ const c=document.createElement('canvas'); c.width=imageData.width; c.height=imageData.height; c.getContext('2d').putImageData(imageData,0,0); return c; }
+  function maskEdgeLayer(maskCanvas,opts={}){
+    const dx=Number(opts.dx)||0, dy=Number(opts.dy)||0;
+    const feather=Math.max(0,Number(opts.feather)||0);
+    const opacity=clamp((Number(opts.opacity)||0)/100,0,1);
+    if(opacity<=0) return null;
+    const shifted=document.createElement('canvas'); shifted.width=maskCanvas.width; shifted.height=maskCanvas.height;
+    const sg=shifted.getContext('2d');
+    if(feather>0) sg.filter=`blur(${Math.max(0.1,feather)}px)`;
+    sg.drawImage(maskCanvas,dx,dy);
+    if(feather>0) sg.filter='none';
+    const maskData=maskCanvas.getContext('2d').getImageData(0,0,maskCanvas.width,maskCanvas.height).data;
+    const shiftData=sg.getImageData(0,0,shifted.width,shifted.height).data;
+    const out=sg.createImageData(shifted.width,shifted.height);
+    const od=out.data; const rgb=hexToRgb(opts.color||'#FFFFFF');
+    const depthBoost=clamp((Number(opts.depth)||100)/100,0,4);
+    for(let i=0;i<od.length;i+=4){
+      const baseA=maskData[i+3]/255; if(baseA<=0) continue;
+      const shiftedA=shiftData[i+3]/255;
+      let edge=Math.max(0,baseA-shiftedA);
+      edge=Math.pow(clamp(edge,0,1),0.82);
+      edge=clamp(edge*depthBoost,0,1);
+      od[i]=rgb.r; od[i+1]=rgb.g; od[i+2]=rgb.b; od[i+3]=Math.round(255*edge*opacity);
+    }
+    const edgeCanvas=alphaToCanvas(out);
+    if((Number(opts.soften)||0)>0){
+      const soft=document.createElement('canvas'); soft.width=edgeCanvas.width; soft.height=edgeCanvas.height; const gg=soft.getContext('2d');
+      gg.filter=`blur(${Math.max(0.1,Number(opts.soften)||0)}px)`; gg.drawImage(edgeCanvas,0,0); gg.filter='none';
+      gg.globalCompositeOperation='destination-in'; gg.drawImage(maskCanvas,0,0);
+      return soft;
+    }
+    const g=edgeCanvas.getContext('2d'); g.globalCompositeOperation='destination-in'; g.drawImage(maskCanvas,0,0);
+    return edgeCanvas;
+  }
+  function bevelLayersFromMask(maskCanvas,effect){
+    if(!effect || effect.enabled===false) return [];
+    if((effect.style||'innerBevel')!=='innerBevel') return [];
+    const size=Math.max(0.5,Number(effect.size)||1);
+    const angle=(Number(effect.angle)||0)*Math.PI/180;
+    const direction=(effect.direction||'up')==='down' ? -1 : 1;
+    const altitudeFactor=0.35 + 0.65*Math.sin(clamp(Number(effect.altitude)||30,0,90)*Math.PI/180);
+    const dist=Math.max(0.5,size*0.65*direction);
+    const dx=Math.cos(angle)*dist, dy=Math.sin(angle)*dist;
+    const feather=Math.max(0.1,size*0.38 + (Number(effect.soften)||0));
+    const depth=Math.max(1,Number(effect.depth)||100) * altitudeFactor;
+    const hi=maskEdgeLayer(maskCanvas,{dx:-dx,dy:-dy,feather,soften:Number(effect.soften)||0,color:effect.highlightColor||'#FFFFFF',opacity:(Number(effect.highlightOpacity)||0),depth:depth/100});
+    const sh=maskEdgeLayer(maskCanvas,{dx:dx,dy:dy,feather,soften:Number(effect.soften)||0,color:effect.shadowColor||'#000000',opacity:(Number(effect.shadowOpacity)||0),depth:depth/100});
+    const layers=[];
+    if(hi) layers.push({canvas:hi,blend:blendToCanvas(effect.highlightBlend||'screen')});
+    if(sh) layers.push({canvas:sh,blend:blendToCanvas(effect.shadowBlend||'multiply')});
+    return (direction===1) ? layers : layers.reverse();
+  }
   function getGroupEffectComposite(group,stage){
-    const strokes=(group.strokes||[]).filter(s=>s.enabled!==false); const shadows=(group.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0); const outer=(group.outerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0); if(!strokes.length&&!shadows.length&&!outer.length) return null;
+    const strokes=(group.strokes||[]).filter(s=>s.enabled!==false); const shadows=(group.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0); const outer=(group.outerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0); const bevels=(group.bevels||[]).filter(s=>s.enabled!==false); if(!strokes.length&&!shadows.length&&!outer.length&&!bevels.length) return null;
     const relevantStrokes=stage==='before' ? strokes.filter(s=>s.position==='outside') : strokes.filter(s=>s.position!=='outside');
     const relevantOuter=stage==='before' ? outer : [];
     if(stage==='before' && !relevantStrokes.length && !relevantOuter.length) return null;
-    if(stage==='after' && !relevantStrokes.length && !shadows.length) return null;
+    if(stage==='after' && !relevantStrokes.length && !shadows.length && !bevels.length) return null;
     const q=state.performance.exporting ? 0.82 : (isDraftPreview()?0.50:0.82);
     const layout=computeGroupLayout(group,q); if(!layout) return null;
-    const effectSig=JSON.stringify({stage,q:Number(q.toFixed(2)),strokes:relevantStrokes,outer:relevantOuter,shadows:stage==='after'?shadows:[]});
+    const effectSig=JSON.stringify({stage,q:Number(q.toFixed(2)),strokes:relevantStrokes,outer:relevantOuter,shadows:stage==='after'?shadows:[],bevels:stage==='after'?bevels:[]});
     const key=`${group.id}|q${q.toFixed(2)}|${layout.memberSig}|${layout.w}x${layout.h}|${effectSig}`;
     const cached=groupEffectCache.get(key);
     if(cached) return {...cached,x:layout.x,y:layout.y,w:layout.w,h:layout.h};
     const mask=buildGroupMaskFromLayout(layout); const layers=[];
     relevantOuter.slice().reverse().forEach(s=>{ const scaled={...s,distance:(Number(s.distance)||0)*layout.q,spread:(Number(s.spread)||0)*layout.q,size:(Number(s.size)||0)*layout.q}; const layer=outerShadowLayer(mask,scaled); layers.push({canvas:layer,blend:blendToCanvas(s.blend)}); });
     relevantStrokes.forEach(s=>{ const layer=dilatedMask(mask,Math.max(.1,(Number(s.width)||0)*layout.q),s.color,s.opacity,s.position); layers.push({canvas:layer,blend:blendToCanvas(s.blend)}); });
-    if(stage==='after'){ shadows.forEach(s=>{ const scaled={...s,distance:(Number(s.distance)||0)*layout.q,size:(Number(s.size)||0)*layout.q}; const layer=groupInnerShadowLayer(mask,scaled); layers.push({canvas:layer,blend:blendToCanvas(s.blend)}); }); }
+    if(stage==='after'){ shadows.forEach(s=>{ const scaled={...s,distance:(Number(s.distance)||0)*layout.q,size:(Number(s.size)||0)*layout.q}; const layer=groupInnerShadowLayer(mask,scaled); layers.push({canvas:layer,blend:blendToCanvas(s.blend)}); }); bevels.forEach(b=>{ const scaled={...b,size:(Number(b.size)||0)*layout.q,soften:(Number(b.soften)||0)*layout.q}; bevelLayersFromMask(mask,scaled).forEach(layer=>layers.push(layer)); }); }
     const stored=cacheMapSet(groupEffectCache,key,{layers,w:layout.w,h:layout.h},80);
     return {...stored,x:layout.x,y:layout.y,w:layout.w,h:layout.h};
   }
@@ -924,7 +1013,7 @@
   }
   function drawStrokePath(g, points, closed=false){
     if(!points||!points.length) return;
-    if(points.length===1){ g.beginPath(); g.arc(points[0].x,points[0].y,0.5,0,Math.PI*2); g.fill(); return; }
+    if(points.length===1){ const r=Math.max(0.5,(Number(g.lineWidth)||1)/2); g.beginPath(); g.arc(points[0].x,points[0].y,r,0,Math.PI*2); g.fill(); return; }
     g.beginPath();
     g.moveTo(points[0].x, points[0].y);
     if(closed){
@@ -1338,6 +1427,7 @@
   function defaultStroke(index=0){return {id:uid('stroke'),enabled:true,width:index?8:14,position:'outside',blend:'normal',opacity:100,color:index?'#FFFFFF':'#5C55A8'};}
   function defaultInnerShadow(){return {id:uid('shadow'),enabled:true,blend:'multiply',color:'#493F74',opacity:28,angle:90,distance:5,choke:6,size:7,contour:'soft',quality:3};}
   function defaultOuterShadow(){return {id:uid('outerShadow'),enabled:true,blend:'multiply',color:'#5A4C78',opacity:35,angle:90,distance:10,spread:6,size:10};}
+  function defaultBevel(){return {id:uid('bevel'),enabled:true,style:'innerBevel',technique:'smooth',depth:140,direction:'up',size:12,soften:4,angle:120,altitude:30,highlightBlend:'screen',highlightColor:'#FFFFFF',highlightOpacity:65,shadowBlend:'multiply',shadowColor:'#6E5C8E',shadowOpacity:40};}
   function newChar(text,fontFamily,fontSize,fill,x,y){ return {id:uid('char'),kind:'text',text,fontFamily,fontSize,fontWeight:700,fill,fillMode:'solid',gradient:defaultGradient(fill),x,y,scale:1,scaleX:1,scaleY:1,skewX:0,skewY:0,angle:0,visible:true,locked:false,groupId:null,strokes:[defaultStroke()],innerShadows:[],outerShadows:[],cacheVersion:1}; }
   function newImageObject(name,src,w,h,x,y){ return {id:uid('img'),kind:'image',name:name||'사진',imageSrc:src,imageWidth:w||256,imageHeight:h||256,x,y,scale:1,scaleX:1,scaleY:1,skewX:0,skewY:0,angle:0,visible:true,locked:false,groupId:null,strokes:[defaultStroke()],innerShadows:[],outerShadows:[],cacheVersion:1}; }
 
@@ -1490,7 +1580,7 @@
       $('charFontFamily').value='[사진 레이어]';
       $('charFill').value='#9389DE'; $('charFillHex').value='#9389DE'; $('charFillMode').value='solid'; $('gradientEditor').classList.add('hidden');
       $('charText').disabled=true; $('charFontSize').disabled=true; $('charFontFamily').disabled=true; $('charFill').disabled=true; $('charFillHex').disabled=true; $('charFillMode').disabled=true;
-      renderStrokeList(c);renderInnerShadowList(c);renderOuterShadowList(c); return;
+      renderStrokeList(c);renderInnerShadowList(c);renderOuterShadowList(c);renderBevelList(c); return;
     }
     if(isGraphicObject(c)){
       const primary=isStampObject(c)?normalizeHex(c.fill||'#FFFFFF'):normalizeHex(c.color||'#FFFFFF');
@@ -1499,11 +1589,11 @@
       $('charFontFamily').value=isStampObject(c)?'[스탬프 레이어]':'[장식 펜 레이어]';
       $('charFill').value=primary; $('charFillHex').value=primary; $('charFillMode').value='solid'; $('gradientEditor').classList.add('hidden');
       $('charText').disabled=false; $('charFontSize').disabled=true; $('charFontFamily').disabled=true; $('charFill').disabled=false; $('charFillHex').disabled=false; $('charFillMode').disabled=true;
-      renderStrokeList(c);renderInnerShadowList(c);renderOuterShadowList(c); renderBevelRecommendations(primary); return;
+      renderStrokeList(c);renderInnerShadowList(c);renderOuterShadowList(c);renderBevelList(c); renderBevelRecommendations(primary); return;
     }
     $('charText').disabled=false; $('charFontSize').disabled=false; $('charFontFamily').disabled=false; $('charFill').disabled=false; $('charFillHex').disabled=false; $('charFillMode').disabled=false;
     ensureGradient(c); $('charText').value=c.text;$('charFontSize').value=c.fontSize;$('charFontFamily').value=c.fontFamily; if($('fontSelect') && [...$('fontSelect').options].some(o=>o.value===c.fontFamily)) $('fontSelect').value=c.fontFamily;$('charFill').value=normalizeHex(c.fill);$('charFillHex').value=normalizeHex(c.fill);$('charFillMode').value=c.fillMode||'solid';$('gradientEditor').classList.toggle('hidden',(c.fillMode||'solid')==='solid');$('gradientAngle').value=c.gradient.angle;$('gradientRange').value=c.gradient.range;$('gradientCenterX').value=c.gradient.centerX;$('gradientCenterY').value=c.gradient.centerY;
-    renderGradientStops(c); renderGradientPreview(c); renderStrokeList(c);renderInnerShadowList(c);renderOuterShadowList(c); renderBevelRecommendations(c.fill);
+    renderGradientStops(c); renderGradientPreview(c); renderStrokeList(c);renderInnerShadowList(c);renderOuterShadowList(c);renderBevelList(c); renderBevelRecommendations(c.fill);
   }
 
   function optionHtml(items,current){return items.map(([v,t])=>`<option value="${v}"${v===current?' selected':''}>${t}</option>`).join('');}
@@ -1585,6 +1675,43 @@
     });
   }
 
+  function renderBevelList(c){
+    const box=$('bevelList'); if(!box) return; box.innerHTML=''; const scope=(state.groupEffectEdit&&c.groupId)?groupById(c.groupId):c; const list=scope&&scope.bevels||[];
+    if(!list.length){ box.innerHTML='<div class="hint">경사와 엠보스가 없습니다. + 경사 추가를 눌러 입체감을 더해보세요.</div>'; return; }
+    list.forEach((s,i)=>{ const el=document.createElement('div'); el.className='effect-item'; el.dataset.id=s.id; el.innerHTML=`
+      <div class="effect-head"><strong>경사 ${i+1}</strong><div class="effect-buttons"><button class="mini-icon" data-act="up">↑</button><button class="mini-icon" data-act="down">↓</button><button class="mini-icon danger" data-act="del">삭제</button></div></div>
+      <div class="effect-grid">
+        <label>스타일<select data-k="style"><option value="innerBevel"${(s.style||'innerBevel')==='innerBevel'?' selected':''}>내부 경사</option></select></label>
+        <label>기법<select data-k="technique"><option value="smooth"${(s.technique||'smooth')==='smooth'?' selected':''}>매끄럽게</option></select></label>
+        <label>깊이(%)<input data-k="depth" type="number" min="1" max="1000" step="1" value="${s.depth??140}"></label>
+        <label>방향<select data-k="direction"><option value="up"${(s.direction||'up')==='up'?' selected':''}>위로</option><option value="down"${(s.direction||'up')==='down'?' selected':''}>아래로</option></select></label>
+        <label>크기(px)<input data-k="size" type="number" min="0" max="300" step="1" value="${s.size??12}"></label>
+        <label>부드럽게(px)<input data-k="soften" type="number" min="0" max="200" step="1" value="${s.soften??4}"></label>
+        <label>각도(°)<input data-k="angle" type="number" step="1" value="${s.angle??120}"></label>
+        <label>높이(°)<input data-k="altitude" type="number" min="0" max="90" step="1" value="${s.altitude??30}"></label>
+        <label>밝은 영역 모드<select data-k="highlightBlend">${optionHtml(BLENDS,s.highlightBlend||'screen')}</select></label>
+        <label>밝은 영역 불투명도(%)<input data-k="highlightOpacity" type="number" min="0" max="100" step="1" value="${s.highlightOpacity??65}"></label>
+        <label class="wide">밝은 영역 색상<div class="color-line wide"><input data-k="highlightColor" type="color" value="${normalizeHex(s.highlightColor||'#FFFFFF')}"><input data-k="highlightColorHex" type="text" value="${normalizeHex(s.highlightColor||'#FFFFFF')}" maxlength="7"></div></label>
+        <label>그림자 모드<select data-k="shadowBlend">${optionHtml(BLENDS,s.shadowBlend||'multiply')}</select></label>
+        <label>그림자 불투명도(%)<input data-k="shadowOpacity" type="number" min="0" max="100" step="1" value="${s.shadowOpacity??40}"></label>
+        <label class="wide">그림자 색상<div class="color-line wide"><input data-k="shadowColor" type="color" value="${normalizeHex(s.shadowColor||'#6E5C8E')}"><input data-k="shadowColorHex" type="text" value="${normalizeHex(s.shadowColor||'#6E5C8E')}" maxlength="7"></div></label>
+      </div>`;
+      wireBevelItem(el,s.id); box.appendChild(el); });
+  }
+  function wireBevelItem(el,id){
+    el.addEventListener('input',(ev)=>{
+      const k=ev.target.dataset.k; if(!k||k.endsWith('Hex')) return; let v=ev.target.value;
+      if(['depth','size','soften','angle','altitude','highlightOpacity','shadowOpacity'].includes(k)) v=Number(v)||0;
+      applyEffectMutation(target=>{ target.bevels=target.bevels||[]; const item=target.bevels.find(x=>x.id===id); if(item) item[k]=v; });
+      if(k==='highlightColor'){ const t=el.querySelector('[data-k="highlightColorHex"]'); if(t) t.value=normalizeHex(v); }
+      if(k==='shadowColor'){ const t=el.querySelector('[data-k="shadowColorHex"]'); if(t) t.value=normalizeHex(v); }
+    });
+    el.addEventListener('change',(ev)=>{
+      const k=ev.target.dataset.k; if(k==='highlightColorHex' || k==='shadowColorHex'){ const hex=normalizeHex(ev.target.value); ev.target.value=hex; const isHi=k==='highlightColorHex'; const picker=el.querySelector(`[data-k="${isHi?'highlightColor':'shadowColor'}"]`); if(picker) picker.value=hex; applyEffectMutation(target=>{ target.bevels=target.bevels||[]; const item=target.bevels.find(x=>x.id===id); if(item) item[isHi?'highlightColor':'shadowColor']=hex; }); }
+    });
+    el.addEventListener('click',(ev)=>{ const act=ev.target.dataset.act; if(!act) return; ev.preventDefault(); const scope=currentEffectScope(); if(!scope) return; const targets=scope.type==='group'?[scope.group]:scope.chars; targets.forEach(target=>{ target.bevels=target.bevels||[]; const arr=target.bevels; const ix=arr.findIndex(x=>x.id===id); if(ix<0) return; if(act==='del') arr.splice(ix,1); else if(act==='up'&&ix>0) [arr[ix-1],arr[ix]]=[arr[ix],arr[ix-1]]; else if(act==='down'&&ix<arr.length-1) [arr[ix+1],arr[ix]]=[arr[ix],arr[ix+1]]; if(scope.type!=='group') markDirty(target); }); groupEffectCache.clear(); updateInspector(); render(); pushHistory(); });
+  }
+
   function wireEffectItem(el,type,id){
     el.addEventListener('input',(ev)=>{
       const k=ev.target.dataset.k;if(!k||k==='colorHex')return; let v=ev.target.value;
@@ -1606,9 +1733,10 @@
   function addStroke(){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ const g=scope.group; g.strokes=g.strokes||[]; g.strokes.push(defaultStroke(g.strokes.length)); } else { const targets=scope.chars;if(!targets.length)return;const template=defaultStroke(targets[0].strokes.length);const sharedId=template.id;targets.forEach(ch=>{ch.strokes.push({...deepClone(template),id:sharedId});markDirty(ch)}); } groupEffectCache.clear();updateInspector();render();pushHistory(); }
   function addInnerShadow(){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ const g=scope.group; g.innerShadows=g.innerShadows||[]; g.innerShadows.push(defaultInnerShadow()); } else { const targets=scope.chars;if(!targets.length)return;const template=defaultInnerShadow();const sharedId=template.id;targets.forEach(ch=>{ch.innerShadows.push({...deepClone(template),id:sharedId});markDirty(ch)}); } groupEffectCache.clear();updateInspector();render();pushHistory();}
   function addOuterShadow(){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ const g=scope.group; g.outerShadows=g.outerShadows||[]; g.outerShadows.push(defaultOuterShadow()); } else { const targets=scope.chars;if(!targets.length)return;const template=defaultOuterShadow();const sharedId=template.id;targets.forEach(ch=>{ch.outerShadows=ch.outerShadows||[];ch.outerShadows.push({...deepClone(template),id:sharedId});markDirty(ch)}); } groupEffectCache.clear();updateInspector();render();pushHistory();}
+  function addBevel(){ const scope=currentEffectScope(); if(!scope)return; if(scope.type==='group'){ const g=scope.group; g.bevels=g.bevels||[]; g.bevels.push(defaultBevel()); } else { const targets=scope.chars; if(!targets.length)return; const template=defaultBevel(); const sharedId=template.id; targets.forEach(ch=>{ ch.bevels=ch.bevels||[]; ch.bevels.push({...deepClone(template),id:sharedId}); markDirty(ch); }); } groupEffectCache.clear();updateInspector();render();pushHistory(); }
 
   function makeGroup(){
-    const ids=[...state.selectedIds];if(ids.length<2){toast('그룹화할 요소를 2개 이상 선택하세요.');return;}const gid=uid('grp'); ids.forEach(id=>{const c=charById(id);if(c)c.groupId=gid;}); state.groups.push({id:gid,linked:true,strokes:[],innerShadows:[],outerShadows:[]}); setSelection(ids,activeChar()?.id||ids[0]); updateAll();pushHistory();toast(`${ids.length}개 요소를 그룹으로 묶었습니다. 이제 함께 이동하며, 그룹 획은 글자와 사진이 합쳐진 외곽선으로 적용됩니다.`);
+    const ids=[...state.selectedIds];if(ids.length<2){toast('그룹화할 요소를 2개 이상 선택하세요.');return;}const gid=uid('grp'); ids.forEach(id=>{const c=charById(id);if(c)c.groupId=gid;}); state.groups.push({id:gid,linked:true,strokes:[],innerShadows:[],outerShadows:[],bevels:[]}); setSelection(ids,activeChar()?.id||ids[0]); updateAll();pushHistory();toast(`${ids.length}개 요소를 그룹으로 묶었습니다. 이제 함께 이동하며, 그룹 획은 글자와 사진이 합쳐진 외곽선으로 적용됩니다.`);
   }
   function toggleGroupLink(){ const c=activeChar(); if(!c||!c.groupId){ toast('그룹 요소를 먼저 선택하세요.'); return; } const g=ensureGroupDefaults(groupById(c.groupId)); g.linked = !(g.linked!==false); updateAll(); pushHistory(); toast(g.linked!==false ? '그룹 잠금을 실행했습니다. 다시 함께 선택·이동할 수 있습니다.' : '그룹 잠금을 해제했습니다. 기존 작업을 유지한 채 요소별 개별 수정이 가능합니다.'); }
   function ungroup(){const c=activeChar();if(!c||!c.groupId)return;const gid=c.groupId;groupMembers(gid).forEach(x=>x.groupId=null); state.groups=state.groups.filter(g=>g.id!==gid); updateAll();pushHistory();toast('그룹을 해제했습니다.');}
@@ -1850,7 +1978,7 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.9.1',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),stampTool:deepClone(state.stampTool),decorTool:deepClone(state.decorTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
+  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.10.1',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),stampTool:deepClone(state.stampTool),decorTool:deepClone(state.decorTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:historyChars(),groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,stampTool:state.stampTool,decorTool:state.decorTool,groupEffectEdit:state.groupEffectEdit,eyedropper:{sample:state.eyedropper.sample}});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>50)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
@@ -1975,7 +2103,7 @@
     const centralData=concatArrays(centrals);const end=concatArrays([u32(0x06054b50),u16(0),u16(0),u16(files.length),u16(files.length),u32(centralData.length),u32(offset),u16(0)]);return new Blob([concatArrays([...locals,centralData,end])],{type:'application/zip'});
   }
   async function exportChars(){
-    const visible=state.chars.filter(c=>c.visible!==false);if(!visible.length){toast('저장할 요소가 없습니다.');return;}const scale=Number($('exportScale').value)||1,mode=$('perCharMode').value,base=sanitizeFilename($('exportName').value),folder=`${base}_characters/`;try{await ensureProjectFontsReady();await document.fonts.ready;groupEffectCache.clear();const files=[];for(let i=0;i<visible.length;i++){const ch=visible[i],out=drawProjectToCanvas(scale,ch,mode),blob=await canvasBlob(out),safe=sanitizeFilename(isImageObject(ch)?(ch.name||`image_${i+1}`):ch.text)||`item_${i+1}`;files.push({name:`${folder}${String(i+1).padStart(2,'0')}_${safe}.png`,blob});}const zip=await makeZip(files);downloadBlob(zip,`${base}_characters.zip`);toast(`${files.length}개 요소 PNG를 ZIP으로 저장했습니다.`);}catch(e){console.error(e);toast('요소별 ZIP 저장에 실패했습니다.');}
+    const visible=state.chars.filter(c=>c.visible!==false);if(!visible.length){toast('저장할 요소가 없습니다.');return;}const scale=Number($('exportScale').value)||1,mode=$('perCharMode').value,base=sanitizeFilename($('exportName').value),folder=`${base}_characters/`;try{await ensureProjectFontsReady();await document.fonts.ready;groupEffectCache.clear();const files=[];for(let i=0;i<visible.length;i++){const ch=visible[i],out=drawProjectToCanvas(scale,ch,mode),blob=await canvasBlob(out),safe=sanitizeFilename(isImageObject(ch)?(ch.name||`image_${i+1}`):isTextObject(ch)?ch.text:(objectLabel(ch)||`item_${i+1}`))||`item_${i+1}`;files.push({name:`${folder}${String(i+1).padStart(2,'0')}_${safe}.png`,blob});}const zip=await makeZip(files);downloadBlob(zip,`${base}_characters.zip`);toast(`${files.length}개 요소 PNG를 ZIP으로 저장했습니다.`);}catch(e){console.error(e);toast('요소별 ZIP 저장에 실패했습니다.');}
   }
 
   function copyStyle(){ const c=activeChar(); if(!c || !isTextObject(c)){toast('스타일을 복사할 텍스트 글자를 선택하세요.'); return;} state.styleClipboard=charStyleSnapshot(c); toast('스타일을 복사했습니다.'); }
@@ -2015,12 +2143,12 @@
     $('refreshSavedFontListBtn').addEventListener('click',()=>refreshSavedFontLibrary());
     $('fontSelect').addEventListener('change',async()=>{const name=$('fontSelect').value; await applyFontToAllTextLayers(name); updateFontTransformUI();}); $('fontTransformPolicy').addEventListener('change',e=>{ const name=activeChar()&&isTextObject(activeChar())?activeChar().fontFamily:$('fontSelect').value; setFontTransformPolicy(name,e.target.value); }); $('applyFontTransformBtn').addEventListener('click',applyFontTransform); $('resetFontTransformBtn').addEventListener('click',resetFontTransform); $('fontTransformScope').addEventListener('change',updateFontTransformUI);$('makeHarmonyBtn').addEventListener('click',()=>{const h=normalizeHex($('harmonyBaseHex').value,$('harmonyBaseColor').value);$('harmonyBaseHex').value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);});$('harmonyBaseColor').addEventListener('input',e=>{$('harmonyBaseHex').value=normalizeHex(e.target.value);renderHarmony(makeHarmony(e.target.value));setEyedropperSample(e.target.value);});$('harmonyBaseHex').addEventListener('change',e=>{const h=normalizeHex(e.target.value);e.target.value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);}); $('applyDirectHexBtn').addEventListener('click',applyDirectHex); $('copyDirectHexBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('directHexInput').value,state.eyedropper.sample||'#9389DE'); $('directHexInput').value=hex; navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('directHexInput').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('eyedropperHex').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('applyEyedropperBtn').addEventListener('click',()=>applyColorToActive($('eyedropperHex').value)); $('copyEyedropperBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('eyedropperHex').value,state.eyedropper.sample||'#9389DE'); navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('eyedropperImageInput').addEventListener('change',async e=>{ try{ await loadEyedropperImage(e.target.files?.[0]); toast('예시 사진을 불러왔습니다.'); }catch(err){ console.error(err); toast('예시 사진을 불러오지 못했습니다.'); drawEyedropperPlaceholder(); } e.target.value=''; }); $('clearEyedropperImageBtn').addEventListener('click',()=>{ drawEyedropperPlaceholder(); toast('예시 사진을 지웠습니다.'); }); const eyeCanvas=$('eyedropperCanvas'); let eyeDown=false; eyeCanvas.addEventListener('pointerdown',e=>{ eyeDown=true; sampleEyedropperAtEvent(e); }); window.addEventListener('pointerup',()=>{ eyeDown=false; }); eyeCanvas.addEventListener('pointermove',e=>{ if(eyeDown) sampleEyedropperAtEvent(e); }); eyeCanvas.addEventListener('click',sampleEyedropperAtEvent);
     $('addGradientStopBtn').addEventListener('click',addGradientStop);document.querySelectorAll('.gradient-preset').forEach(b=>b.addEventListener('click',()=>applyGradientPreset(b.dataset.preset)));
-    $('addStrokeBtn').addEventListener('click',addStroke);$('addInnerShadowBtn').addEventListener('click',addInnerShadow);$('addOuterShadowBtn').addEventListener('click',addOuterShadow);$('makeGroupBtn').addEventListener('click',makeGroup);$('ungroupBtn').addEventListener('click',ungroup);$('toggleGroupLinkBtn').addEventListener('click',toggleGroupLink);$('groupEffectToggle').addEventListener('change',e=>{state.groupEffectEdit=e.target.checked;updateInspector();pushHistory();});if($('groupMoveToggle')) $('groupMoveToggle').addEventListener('change',e=>state.groupMove=e.target.checked);$('copyStyleBtn').addEventListener('click',copyStyle);$('pasteStyleBtn').addEventListener('click',pasteStyle);
+    $('addStrokeBtn').addEventListener('click',addStroke);$('addInnerShadowBtn').addEventListener('click',addInnerShadow);$('addOuterShadowBtn').addEventListener('click',addOuterShadow); if($('addBevelBtn')) $('addBevelBtn').addEventListener('click',addBevel);$('makeGroupBtn').addEventListener('click',makeGroup);$('ungroupBtn').addEventListener('click',ungroup);$('toggleGroupLinkBtn').addEventListener('click',toggleGroupLink);$('groupEffectToggle').addEventListener('change',e=>{state.groupEffectEdit=e.target.checked;updateInspector();pushHistory();});if($('groupMoveToggle')) $('groupMoveToggle').addEventListener('change',e=>state.groupMove=e.target.checked);$('copyStyleBtn').addEventListener('click',copyStyle);$('pasteStyleBtn').addEventListener('click',pasteStyle);
     $('saveStrokePresetBtn').addEventListener('click',()=>saveEffectPreset('stroke'));$('applyStrokePresetBtn').addEventListener('click',()=>applyEffectPreset('stroke'));$('deleteStrokePresetBtn').addEventListener('click',()=>deleteEffectPreset('stroke'));
     $('saveShadowPresetBtn').addEventListener('click',()=>saveEffectPreset('shadow'));$('applyShadowPresetBtn').addEventListener('click',()=>applyEffectPreset('shadow'));$('deleteShadowPresetBtn').addEventListener('click',()=>deleteEffectPreset('shadow'));
     $('strokePresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('stroke');}});$('shadowPresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('shadow');}});
     $('layerTopBtn').addEventListener('click',()=>moveLayer('top'));$('layerUpBtn').addEventListener('click',()=>moveLayer('up'));$('layerDownBtn').addEventListener('click',()=>moveLayer('down'));$('layerBottomBtn').addEventListener('click',()=>moveLayer('bottom'));
-    $('fitBtn').addEventListener('click',fitPreview); $('centerSelectedBtn').addEventListener('click',centerSelected); $('centerXBtn').addEventListener('click',centerSelectedX); $('centerYBtn').addEventListener('click',centerSelectedY); ['drawModeBtn','drawModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setDrawMode(!state.drawTool.enabled);})); ['paintModeBtn','paintModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setPaintMode(!state.paintTool.enabled);})); $('stampModeBtn2')?.addEventListener('click',()=>setStampMode(!state.stampTool.enabled)); $('stampBaseSize')?.addEventListener('input',e=>{state.stampTool.size=Number(e.target.value)||96; updateStampToolUI();}); $('stampFillColor')?.addEventListener('input',e=>{state.stampTool.fill=normalizeHex(e.target.value); if($('stampFillHex')) $('stampFillHex').value=state.stampTool.fill; updateStampToolUI();}); $('stampFillHex')?.addEventListener('change',e=>{state.stampTool.fill=normalizeHexInput(e.target.value,state.stampTool.fill||'#FFFFFF'); e.target.value=state.stampTool.fill; if($('stampFillColor')) $('stampFillColor').value=state.stampTool.fill; updateStampToolUI();}); $('stampStrokeColor')?.addEventListener('input',e=>{state.stampTool.strokeColor=normalizeHex(e.target.value); if($('stampStrokeHex')) $('stampStrokeHex').value=state.stampTool.strokeColor; updateStampToolUI();}); $('stampStrokeHex')?.addEventListener('change',e=>{state.stampTool.strokeColor=normalizeHexInput(e.target.value,state.stampTool.strokeColor||'#8FC8FF'); e.target.value=state.stampTool.strokeColor; if($('stampStrokeColor')) $('stampStrokeColor').value=state.stampTool.strokeColor; updateStampToolUI();}); $('stampStrokeWidth')?.addEventListener('input',e=>{state.stampTool.strokeWidth=clamp(Number(e.target.value)||0,0,80); updateStampToolUI();}); document.querySelectorAll('#stampTypeGrid [data-stamp-type]').forEach(btn=>btn.addEventListener('click',()=>{state.stampTool.shape=btn.dataset.stampType||'circle'; updateStampToolUI();})); $('decorModeBtn2')?.addEventListener('click',()=>setDecorMode(!state.decorTool.enabled)); $('decorBrushType')?.addEventListener('change',e=>{state.decorTool.brushType=e.target.value||'pen'; updateDecorToolUI();}); $('decorAssistMode')?.addEventListener('change',e=>{state.decorTool.assistMode=e.target.value||'freehand'; updateDecorToolUI();}); $('decorColor')?.addEventListener('input',e=>{state.decorTool.color=normalizeHex(e.target.value); if($('decorColorHex')) $('decorColorHex').value=state.decorTool.color; updateDecorToolUI();}); $('decorColorHex')?.addEventListener('change',e=>{state.decorTool.color=normalizeHexInput(e.target.value,state.decorTool.color||'#FFFFFF'); e.target.value=state.decorTool.color; if($('decorColor')) $('decorColor').value=state.decorTool.color; updateDecorToolUI();}); $('decorOutlineColor')?.addEventListener('input',e=>{state.decorTool.outlineColor=normalizeHex(e.target.value); if($('decorOutlineHex')) $('decorOutlineHex').value=state.decorTool.outlineColor; updateDecorToolUI();}); $('decorOutlineHex')?.addEventListener('change',e=>{state.decorTool.outlineColor=normalizeHexInput(e.target.value,state.decorTool.outlineColor||'#8FC8FF'); e.target.value=state.decorTool.outlineColor; if($('decorOutlineColor')) $('decorOutlineColor').value=state.decorTool.outlineColor; updateDecorToolUI();}); $('decorOutlineWidth')?.addEventListener('input',e=>{state.decorTool.outlineWidth=clamp(Number(e.target.value)||0,0,80); updateDecorToolUI();}); $('decorSize')?.addEventListener('input',e=>{state.decorTool.size=Math.max(1,Number(e.target.value)||14); updateDecorToolUI();}); $('decorStabilize')?.addEventListener('change',e=>{state.decorTool.stabilize=clamp(Number(e.target.value)||0.88,0,0.98); updateDecorToolUI();});
+    $('fitBtn').addEventListener('click',fitPreview); $('centerSelectedBtn').addEventListener('click',centerSelected); $('centerXBtn').addEventListener('click',centerSelectedX); $('centerYBtn').addEventListener('click',centerSelectedY); ['drawModeBtn','drawModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setDrawMode(!state.drawTool.enabled);})); ['paintModeBtn','paintModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setPaintMode(!state.paintTool.enabled);})); $('stampModeBtn2')?.addEventListener('click',()=>setStampMode(!state.stampTool.enabled)); $('stampBaseSize')?.addEventListener('input',e=>{state.stampTool.size=Number(e.target.value)||96; updateStampToolUI();}); $('stampFillColor')?.addEventListener('input',e=>{state.stampTool.fill=normalizeHex(e.target.value); if($('stampFillHex')) $('stampFillHex').value=state.stampTool.fill; updateStampToolUI();}); $('stampFillHex')?.addEventListener('change',e=>{state.stampTool.fill=normalizeHexInput(e.target.value,state.stampTool.fill||'#FFFFFF'); e.target.value=state.stampTool.fill; if($('stampFillColor')) $('stampFillColor').value=state.stampTool.fill; updateStampToolUI();}); $('stampStrokeColor')?.addEventListener('input',e=>{state.stampTool.strokeColor=normalizeHex(e.target.value); if($('stampStrokeHex')) $('stampStrokeHex').value=state.stampTool.strokeColor; updateStampToolUI();}); $('stampStrokeHex')?.addEventListener('change',e=>{state.stampTool.strokeColor=normalizeHexInput(e.target.value,state.stampTool.strokeColor||'#8FC8FF'); e.target.value=state.stampTool.strokeColor; if($('stampStrokeColor')) $('stampStrokeColor').value=state.stampTool.strokeColor; updateStampToolUI();}); $('stampStrokeWidth')?.addEventListener('input',e=>{state.stampTool.strokeWidth=clamp(Number(e.target.value)||0,0,80); updateStampToolUI();}); document.querySelectorAll('#stampTypeGrid [data-stamp-type]').forEach(btn=>btn.addEventListener('click',()=>{state.stampTool.shape=btn.dataset.stampType||'circle'; setStampMode(true); updateStampToolUI();})); $('decorModeBtn2')?.addEventListener('click',()=>setDecorMode(!state.decorTool.enabled)); $('decorBrushType')?.addEventListener('change',e=>{state.decorTool.brushType=e.target.value||'pen'; updateDecorToolUI();}); $('decorAssistMode')?.addEventListener('change',e=>{state.decorTool.assistMode=e.target.value||'freehand'; updateDecorToolUI();}); $('decorColor')?.addEventListener('input',e=>{state.decorTool.color=normalizeHex(e.target.value); if($('decorColorHex')) $('decorColorHex').value=state.decorTool.color; updateDecorToolUI();}); $('decorColorHex')?.addEventListener('change',e=>{state.decorTool.color=normalizeHexInput(e.target.value,state.decorTool.color||'#FFFFFF'); e.target.value=state.decorTool.color; if($('decorColor')) $('decorColor').value=state.decorTool.color; updateDecorToolUI();}); $('decorOutlineColor')?.addEventListener('input',e=>{state.decorTool.outlineColor=normalizeHex(e.target.value); if($('decorOutlineHex')) $('decorOutlineHex').value=state.decorTool.outlineColor; updateDecorToolUI();}); $('decorOutlineHex')?.addEventListener('change',e=>{state.decorTool.outlineColor=normalizeHexInput(e.target.value,state.decorTool.outlineColor||'#8FC8FF'); e.target.value=state.decorTool.outlineColor; if($('decorOutlineColor')) $('decorOutlineColor').value=state.decorTool.outlineColor; updateDecorToolUI();}); $('decorOutlineWidth')?.addEventListener('input',e=>{state.decorTool.outlineWidth=clamp(Number(e.target.value)||0,0,80); updateDecorToolUI();}); $('decorSize')?.addEventListener('input',e=>{state.decorTool.size=Math.max(1,Number(e.target.value)||14); updateDecorToolUI();}); $('decorStabilize')?.addEventListener('change',e=>{state.decorTool.stabilize=clamp(Number(e.target.value)||0.88,0,0.98); updateDecorToolUI();});
     $('zoomOutBtn').addEventListener('click',()=>zoomBy(1/1.2)); $('zoomInBtn').addEventListener('click',()=>zoomBy(1.2)); $('zoomValueBtn').addEventListener('click',zoomTo100);
     $('zoomSlider').addEventListener('input',e=>applyPreviewZoom(clamp((Number(e.target.value)||100)/100,.05,4),'manual'));
     viewport.addEventListener('wheel',e=>{ if(!(e.ctrlKey||e.metaKey))return; e.preventDefault(); zoomBy(e.deltaY<0?1.12:1/1.12,{x:e.clientX,y:e.clientY}); },{passive:false});

@@ -7,7 +7,7 @@
   <title>FontFX Studio 1.9.1 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.9.1" />
+  <link rel="stylesheet" href="styles.css?v=1.10.1" />
 </head>
 <body>
   <header class="topbar">
@@ -393,6 +393,11 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
           <div class="card-title-row"><h3>외부 그림자</h3><button id="addOuterShadowBtn" class="primary small">+ 외부 그림자 추가</button></div>
           <p class="hint">색상·방향(각도)·거리·두께/퍼짐·블러·불투명도·혼합모드를 각각 조절할 수 있으며 여러 개를 겹쳐 사용할 수 있습니다.</p>
           <div id="outerShadowList" class="effect-list"></div>
+
+          <div class="divider"></div>
+          <div class="card-title-row"><h3>경사와 엠보스</h3><button id="addBevelBtn" class="primary small">+ 경사 추가</button></div>
+          <p class="hint">글자, 스탬프, 장식펜(그리고 사진 레이어)에도 적용할 수 있는 경사/엠보스 효과입니다. 내부 경사 · 매끄럽게 · 깊이 · 방향 · 크기 · 부드럽게 · 각도 · 높이 · 밝은 영역/그림자 모드를 각각 조절할 수 있습니다.</p>
+          <div id="bevelList" class="effect-list"></div>
         </div>
       </section>
 
@@ -420,6 +425,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.9.1"></script>
+  <script src="app.js?v=1.10.1"></script>
 </body>
 </html>
