@@ -648,11 +648,12 @@
     return {minX:Math.min(...xs), maxX:Math.max(...xs), minY:Math.min(...ys), maxY:Math.max(...ys)};
   }
   function computeGroupLayout(group, q=1.1){
+    // Use full rendered object alpha (including per-object shadows/strokes) so group strokes can wrap around the visible silhouette.
     const members=groupMembers(group.id).filter(ch=>ch&&ch.visible!==false);
     if(!members.length) return null;
     const entries=[]; let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
     for(const ch of members){
-      const surf=renderObjectMask(ch,Math.min(1.8,q*1.25)); const rect=groupVisualRect(ch,surf); minX=Math.min(minX,rect.minX); minY=Math.min(minY,rect.minY); maxX=Math.max(maxX,rect.maxX); maxY=Math.max(maxY,rect.maxY); entries.push({ch,surf});
+      const surf=renderObjectSurface(ch,Math.min(1.8,q*1.25)); const rect=groupVisualRect(ch,surf); minX=Math.min(minX,rect.minX); minY=Math.min(minY,rect.minY); maxX=Math.max(maxX,rect.maxX); maxY=Math.max(maxY,rect.maxY); entries.push({ch,surf});
     }
     const attachedDrawings=strokesAttachedToGroup(group.id,false);
     for(const stroke of attachedDrawings){
@@ -1626,7 +1627,7 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.8.0',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
+  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.8.1',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:historyChars(),groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,groupEffectEdit:state.groupEffectEdit,eyedropper:{sample:state.eyedropper.sample}});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>50)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
