@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.8.2 Web</title>
+  <title>FontFX Studio 1.9.0 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.8.2" />
+  <link rel="stylesheet" href="styles.css?v=1.9.0" />
 </head>
 <body>
   <header class="topbar">
@@ -145,7 +145,50 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
 
 
       <section class="card">
-        <h2>5. 색칠하기 툴</h2>
+        <h2>5. 스탬프 &amp; 장식 펜</h2>
+        <h3>스탬프 툴</h3>
+        <div class="field-row two">
+          <button id="stampModeBtn2" class="secondary">스탬프 모드 켜기/끄기</button>
+          <label>스탬프 기본 크기<div class="range-row"><input id="stampBaseSize" type="range" min="16" max="320" value="96"><span id="stampBaseSizeValue" class="range-value">96 px</span></div></label>
+        </div>
+        <div id="stampTypeGrid" class="button-cluster wrap">
+          <button type="button" class="ghost small" data-stamp-type="circle">원</button>
+          <button type="button" class="ghost small" data-stamp-type="heart">하트</button>
+          <button type="button" class="ghost small" data-stamp-type="star">별</button>
+          <button type="button" class="ghost small" data-stamp-type="sparkle">반짝</button>
+          <button type="button" class="ghost small" data-stamp-type="bubble">방울</button>
+          <button type="button" class="ghost small" data-stamp-type="flower">꽃</button>
+        </div>
+        <div class="field-row two">
+          <label>채우기 색상<div class="color-line"><input id="stampFillColor" type="color" value="#ffffff"><input id="stampFillHex" type="text" value="#FFFFFF" maxlength="7"></div></label>
+          <label>기본 획 색상<div class="color-line"><input id="stampStrokeColor" type="color" value="#8fc8ff"><input id="stampStrokeHex" type="text" value="#8FC8FF" maxlength="7"></div></label>
+        </div>
+        <div class="field-row two">
+          <label>기본 획 두께(px)<input id="stampStrokeWidth" type="number" min="0" max="80" step="1" value="10"></label>
+          <div class="hint">먼저 모양과 색상/기본 획을 정한 뒤, 미리보기 화면을 클릭하면 그 위치에 바로 찍힙니다. 찍은 뒤에는 캔버스에서 직접 선택해서 크기/위치/회전을 조절할 수 있습니다.</div>
+        </div>
+
+        <div class="divider"></div>
+        <h3>장식 펜 / 점선 펜</h3>
+        <div class="field-row two">
+          <button id="decorModeBtn2" class="secondary">장식 펜 모드 켜기/끄기</button>
+          <label>펜 종류<select id="decorBrushType"><option value="pen">장식 펜</option><option value="dotted">점선 펜</option></select></label>
+        </div>
+        <div class="field-row three">
+          <label>선 보정<select id="decorAssistMode"><option value="freehand">자유선</option><option value="line">선형 보정</option><option value="curve">곡선 보정</option><option value="circle">원형 보정</option></select></label>
+          <label>펜 색상<div class="color-line"><input id="decorColor" type="color" value="#ffffff"><input id="decorColorHex" type="text" value="#FFFFFF" maxlength="7"></div></label>
+          <label>펜 굵기<div class="range-row"><input id="decorSize" type="range" min="1" max="120" value="14"><span id="decorSizeValue" class="range-value">14 px</span></div></label>
+        </div>
+        <div class="field-row three">
+          <label>펜 획 색상<div class="color-line"><input id="decorOutlineColor" type="color" value="#8FC8FF"><input id="decorOutlineHex" type="text" value="#8FC8FF" maxlength="7"></div></label>
+          <label>펜 획 두께(px)<input id="decorOutlineWidth" type="number" min="0" max="80" step="1" value="6"></label>
+          <label>손떨림 보정(0~0.98)<input id="decorStabilize" type="number" min="0" max="0.98" step="0.01" value="0.88"></label>
+        </div>
+        <p class="hint">기존 그리기 툴/색칠하기 툴과는 별도입니다. 장식 펜으로 그린 선은 독립 레이어가 되며, 그룹화도 가능하고 기본 획이 함께 들어간 상태로 생성됩니다.</p>
+      </section>
+
+      <section class="card">
+        <h2>6. 색칠하기 툴</h2>
         <div class="field-row two">
           <button id="paintModeBtn2" class="secondary">색칠하기 모드 켜기/끄기</button>
           <label>칠하기 색상<div class="color-line"><input id="paintColor" type="color" value="#7c5cff"><input id="paintColorHex" type="text" value="#7C5CFF" maxlength="7"></div></label>
@@ -377,6 +420,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.8.2"></script>
+  <script src="app.js?v=1.9.0"></script>
 </body>
 </html>

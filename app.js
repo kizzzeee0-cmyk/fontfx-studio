@@ -60,6 +60,8 @@
     activePaintId: null,
     drawTool: { enabled: false, color: '#FF5AA5', size: 18, aboveText: true, stabilize: 0.88, brushType: 'pen', assistMode: 'freehand' },
     paintTool: { enabled: false, color: '#7C5CFF', color2: '#FFFFFF', fillMode: 'solid', gradientAngle: 90, size: 18, mode: 'paint', assistMode: 'freehand', blend: 'normal', stabilize: 0.88 },
+    stampTool: { enabled:false, shape:'circle', fill:'#FFFFFF', strokeColor:'#8FC8FF', strokeWidth:10, size:96 },
+    decorTool: { enabled:false, color:'#FFFFFF', outlineColor:'#8FC8FF', outlineWidth:6, size:14, brushType:'pen', assistMode:'freehand', stabilize:0.88 },
     history: [],
     historyIndex: -1,
     suppressHistory: false,
@@ -96,7 +98,11 @@
   function activeChar(){ return state.chars.find(c => c.id === state.activeId) || null; }
   function charById(id){ return state.chars.find(c => c.id === id) || null; }
   function isImageObject(obj){ return !!obj && obj.kind==='image'; }
-  function objectLabel(obj){ return isImageObject(obj) ? (obj.name||'사진') : (obj.text||'글자'); }
+  function isStampObject(obj){ return !!obj && obj.kind==='stamp'; }
+  function isDecorObject(obj){ return !!obj && obj.kind==='decor'; }
+  function isTextObject(obj){ return !!obj && (obj.kind||'text')==='text'; }
+  function isGraphicObject(obj){ return isStampObject(obj)||isDecorObject(obj); }
+  function objectLabel(obj){ return isImageObject(obj) ? (obj.name||'사진') : isStampObject(obj) ? (obj.name||'스탬프') : isDecorObject(obj) ? (obj.name||'장식펜') : (obj.text||'글자'); }
   function groupById(id){ return state.groups.find(g => g.id === id) || null; }
   function ensureGroupDefaults(g){ if(!g) return null; if(g.linked===undefined) g.linked=true; g.strokes=g.strokes||[]; g.innerShadows=g.innerShadows||[]; g.outerShadows=g.outerShadows||[]; return g; }
   function groupMembers(groupId){ return groupId ? state.chars.filter(c => c.groupId === groupId) : []; }
@@ -145,8 +151,8 @@
   }
   function textTransformTargets(){
     const scope=$('fontTransformScope')?.value||'all';
-    if(scope==='selected') return [...state.selectedIds].map(charById).filter(ch=>ch&&!isImageObject(ch));
-    return state.chars.filter(ch=>ch&&!isImageObject(ch));
+    if(scope==='selected') return [...state.selectedIds].map(charById).filter(ch=>ch&&isTextObject(ch));
+    return state.chars.filter(ch=>ch&&isTextObject(ch));
   }
   function transformPolicyCheck(targets){
     const names=[...new Set((targets||[]).map(ch=>ch.fontFamily).filter(Boolean))];
@@ -159,7 +165,7 @@
   }
   function updateFontTransformUI(){
     const active=activeChar();
-    const textActive=active&&!isImageObject(active)?active:state.chars.find(ch=>!isImageObject(ch));
+    const textActive=active&&isTextObject(active)?active:state.chars.find(ch=>isTextObject(ch));
     const currentFont=textActive?.fontFamily||$('fontSelect')?.value||'';
     const policy=getFontTransformPolicy(currentFont);
     const ps=$('fontTransformPolicy'); if(ps) ps.value=policy;
@@ -190,7 +196,7 @@
   }
   function applyGuardedObjectTransform(field,value){
     const c=activeChar(); if(!c)return;
-    if(!isImageObject(c) && !transformPolicyCheck([c])){ updateInspectorTransformOnly(); return; }
+    if(isTextObject(c) && !transformPolicyCheck([c])){ updateInspectorTransformOnly(); return; }
     c[field]=value; clearGroupRuntimeCache(); renderScheduled(); updateLayers(); scheduleHistory(); updateFontTransformUI();
   }
   function renderScheduled(){ if(renderScheduled._raf) return; renderScheduled._raf=requestAnimationFrame(()=>{ renderScheduled._raf=0; render(); }); }
@@ -479,6 +485,125 @@
     return layer;
   }
 
+
+  function stampShapeName(type){ return ({circle:'원',heart:'하트',star:'별',sparkle:'반짝',bubble:'방울',flower:'꽃'}[type]||'스탬프'); }
+  function drawStampShape(g,type,cx,cy,size){
+    const r=size/2;
+    g.beginPath();
+    if(type==='heart'){
+      const top=cy-r*0.08;
+      g.moveTo(cx, cy+r*0.78);
+      g.bezierCurveTo(cx-r*1.08, cy+r*0.22, cx-r*1.02, cy-r*0.54, cx-r*0.22, top-r*0.25);
+      g.bezierCurveTo(cx-r*0.02, cy-r*0.5, cx+r*0.02, cy-r*0.5, cx+r*0.22, top-r*0.25);
+      g.bezierCurveTo(cx+r*1.02, cy-r*0.54, cx+r*1.08, cy+r*0.22, cx, cy+r*0.78);
+      g.closePath();
+    }else if(type==='star'){
+      const spikes=5, outer=r, inner=r*0.48;
+      for(let i=0;i<spikes*2;i++){
+        const ang=-Math.PI/2 + i*Math.PI/spikes; const rr=i%2===0?outer:inner;
+        const x=cx+Math.cos(ang)*rr, y=cy+Math.sin(ang)*rr; if(i===0) g.moveTo(x,y); else g.lineTo(x,y);
+      }
+      g.closePath();
+    }else if(type==='sparkle'){
+      const outer=r, inner=r*0.36;
+      for(let i=0;i<8;i++){
+        const ang=-Math.PI/2 + i*Math.PI/4; const rr=i%2===0?outer:inner; const x=cx+Math.cos(ang)*rr, y=cy+Math.sin(ang)*rr;
+        if(i===0) g.moveTo(x,y); else g.lineTo(x,y);
+      }
+      g.closePath();
+    }else if(type==='bubble'){
+      for(let i=0;i<6;i++){
+        const ang=-Math.PI/2 + i*Math.PI/3; const px=cx+Math.cos(ang)*r*0.58, py=cy+Math.sin(ang)*r*0.58;
+        if(i===0) g.moveTo(px+r*0.34,py);
+        g.arc(px,py,r*0.34,0,Math.PI*2);
+      }
+    }else if(type==='flower'){
+      for(let i=0;i<6;i++){
+        const ang=i*Math.PI/3; const px=cx+Math.cos(ang)*r*0.46, py=cy+Math.sin(ang)*r*0.46;
+        if(i===0) g.moveTo(px+r*0.34,py);
+        g.arc(px,py,r*0.34,0,Math.PI*2);
+      }
+      g.moveTo(cx+r*0.28,cy); g.arc(cx,cy,r*0.28,0,Math.PI*2);
+    }else {
+      g.arc(cx,cy,r,0,Math.PI*2);
+    }
+  }
+  function drawStampMask(g,obj,offsetX,offsetY){ const size=Math.max(8,Number(obj.baseSize||obj.size)||96); drawStampShape(g,obj.shape||'circle',offsetX,offsetY,size); g.fill(); }
+  function drawDottedPath(g, points, radius, closed=false){
+    if(!points||!points.length) return;
+    const step=Math.max(2,radius*1.65);
+    const seq=points.slice();
+    if(seq.length===1){ g.beginPath(); g.arc(seq[0].x,seq[0].y,radius,0,Math.PI*2); g.fill(); return; }
+    if(closed) seq.push({...seq[0]});
+    for(let i=0;i<seq.length-1;i++){
+      const a=seq[i], b=seq[i+1]; const dx=b.x-a.x, dy=b.y-a.y, dist=Math.hypot(dx,dy)||1; const count=Math.max(1,Math.floor(dist/step));
+      for(let j=0;j<=count;j++){ const t=j/count; g.beginPath(); g.arc(a.x+dx*t,a.y+dy*t,radius,0,Math.PI*2); g.fill(); }
+    }
+  }
+  function drawDecorBase(g,obj,offsetX=0,offsetY=0,mask=false){
+    const points=(obj.points||[]).map(p=>({x:p.x+offsetX,y:p.y+offsetY}));
+    if(!points.length) return;
+    const closed=obj.assistMode==='circle';
+    g.save(); g.lineCap='round'; g.lineJoin='round'; g.fillStyle=mask?'#fff':(obj.color||'#FFFFFF'); g.strokeStyle=mask?'#fff':(obj.color||'#FFFFFF');
+    if((obj.brushType||'pen')==='dotted') drawDottedPath(g, points, Math.max(0.8,(Number(obj.size)||1)/2), closed);
+    else { g.lineWidth=Math.max(1,Number(obj.size)||1); drawStrokePath(g, points, closed); }
+    g.restore();
+  }
+  function newStampObject(shape,x,y){
+    const fill=normalizeHexInput(state.stampTool.fill,'#FFFFFF');
+    const strokeColor=normalizeHexInput(state.stampTool.strokeColor,'#8FC8FF');
+    const strokeWidth=clamp(Number(state.stampTool.strokeWidth)||0,0,80);
+    return {id:uid('stamp'),kind:'stamp',name:`${stampShapeName(shape)} 스탬프`,shape:shape||'circle',baseSize:Math.max(16,Number(state.stampTool.size)||96),fill,x,y,scale:1,scaleX:1,scaleY:1,skewX:0,skewY:0,angle:0,visible:true,locked:false,groupId:null,strokes:strokeWidth>0?[{id:uid('stroke'),enabled:true,width:strokeWidth,position:'center',blend:'normal',opacity:100,color:strokeColor}]:[],innerShadows:[],outerShadows:[],cacheVersion:1};
+  }
+  function newDecorObject(pointsWorld){
+    const pts=(pointsWorld||[]).map(p=>({x:p.x,y:p.y}));
+    const b=getStrokeBounds(pts)||{minX:0,maxX:0,minY:0,maxY:0};
+    const x=(b.minX+b.maxX)/2, y=(b.minY+b.maxY)/2;
+    const outlineW=clamp(Number(state.decorTool.outlineWidth)||0,0,80);
+    return {id:uid('decor'),kind:'decor',name:(state.decorTool.brushType==='dotted'?'점선 펜':'장식 펜'),x,y,scale:1,scaleX:1,scaleY:1,skewX:0,skewY:0,angle:0,visible:true,locked:false,groupId:null,color:normalizeHexInput(state.decorTool.color,'#FFFFFF'),size:Math.max(1,Number(state.decorTool.size)||14),brushType:state.decorTool.brushType||'pen',assistMode:state.decorTool.assistMode||'freehand',points:pts.map(p=>({x:p.x-x,y:p.y-y})),strokes:outlineW>0?[{id:uid('stroke'),enabled:true,width:outlineW,position:'outside',blend:'normal',opacity:100,color:normalizeHexInput(state.decorTool.outlineColor,'#8FC8FF')}]:[],innerShadows:[],outerShadows:[],cacheVersion:1};
+  }
+  function setDecorWorldPoints(obj, pointsWorld){
+    const pts=(pointsWorld||[]).map(p=>({x:p.x,y:p.y}));
+    const b=getStrokeBounds(pts)||{minX:obj.x||0,maxX:obj.x||0,minY:obj.y||0,maxY:obj.y||0};
+    obj.x=(b.minX+b.maxX)/2; obj.y=(b.minY+b.maxY)/2; obj.points=pts.map(p=>({x:p.x-obj.x,y:p.y-obj.y})); markDirty(obj);
+  }
+  function renderStampSurface(obj,quality=2){
+    const size=Math.max(16,Number(obj.baseSize||obj.size)||96); const q=clamp(quality,1,6);
+    const strokes=(obj.strokes||[]).filter(s=>s.enabled!==false), outside=strokes.filter(s=>s.position==='outside'), center=strokes.filter(s=>s.position==='center'), inside=strokes.filter(s=>s.position==='inside');
+    const outerShadows=(obj.outerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0), innerShadows=(obj.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0);
+    const strokeExtent=Math.max(0,...outside.map(s=>(Number(s.width)||0)*2+4),...center.map(s=>(Number(s.width)||0)+4),...inside.map(s=>(Number(s.width)||0)+2));
+    const outerExtent=Math.max(0,...outerShadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.spread)||0)+(Number(s.size)||0)*2+4));
+    const innerExtent=Math.max(0,...innerShadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.size)||0)+4));
+    const pad=Math.ceil(Math.max(6,strokeExtent,outerExtent,innerExtent*0.25)); const logicalW=size+pad*2, logicalH=size+pad*2;
+    const key=`stamp|${obj.id}|${obj.cacheVersion||0}|${q.toFixed(2)}`; if(surfaceCache.has(key)) return surfaceCache.get(key);
+    const c=document.createElement('canvas'); c.width=Math.max(1,Math.ceil(logicalW*q)); c.height=Math.max(1,Math.ceil(logicalH*q)); const g=c.getContext('2d'); g.scale(q,q);
+    const mask=document.createElement('canvas'); mask.width=c.width; mask.height=c.height; const mg=mask.getContext('2d'); mg.scale(q,q); mg.fillStyle='#fff'; drawStampMask(mg,obj,logicalW/2,logicalH/2);
+    if(outerShadows.length){ for(let i=outerShadows.length-1;i>=0;i--){ const s=outerShadows[i], scaled={...s,distance:(Number(s.distance)||0)*q,spread:(Number(s.spread)||0)*q,size:(Number(s.size)||0)*q}; const layer=outerShadowLayer(mask,scaled); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); } }
+    for(let i=outside.length-1;i>=0;i--){ const s=outside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q*2),s.color,s.opacity,'outside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
+    g.save(); g.fillStyle=obj.fill||'#FFFFFF'; drawStampMask(g,obj,logicalW/2,logicalH/2); g.restore();
+    for(let i=center.length-1;i>=0;i--){ const s=center[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q),s.color,s.opacity,'center'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
+    for(let i=inside.length-1;i>=0;i--){ const s=inside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q*2),s.color,s.opacity,'inside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
+    if(innerShadows.length){ for(const s of innerShadows){ const scaled={...s,distance:(Number(s.distance)||0)*q,size:(Number(s.size)||0)*q}; const layer=groupInnerShadowLayer(mask,scaled); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); } }
+    return cacheMapSet(surfaceCache,key,{canvas:c,logicalW,logicalH,pad},180);
+  }
+  function renderDecorSurface(obj,quality=2){
+    const points=obj.points||[]; const b=getStrokeBounds(points)||{minX:-1,maxX:1,minY:-1,maxY:1}; const q=clamp(quality,1,6);
+    const strokes=(obj.strokes||[]).filter(s=>s.enabled!==false), outside=strokes.filter(s=>s.position==='outside'), center=strokes.filter(s=>s.position==='center'), inside=strokes.filter(s=>s.position==='inside');
+    const outerShadows=(obj.outerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0), innerShadows=(obj.innerShadows||[]).filter(s=>s.enabled!==false&&s.opacity>0);
+    const linePad=(Number(obj.size)||1)/2+4; const strokeExtent=Math.max(0,...outside.map(s=>(Number(s.width)||0)*2+4),...center.map(s=>(Number(s.width)||0)+4),...inside.map(s=>(Number(s.width)||0)+2));
+    const outerExtent=Math.max(0,...outerShadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.spread)||0)+(Number(s.size)||0)*2+4)); const innerExtent=Math.max(0,...innerShadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.size)||0)+4));
+    const pad=Math.ceil(Math.max(linePad,strokeExtent,outerExtent,innerExtent*0.25)); const logicalW=Math.max(8,(b.maxX-b.minX)+pad*2), logicalH=Math.max(8,(b.maxY-b.minY)+pad*2);
+    const key=`decor|${obj.id}|${obj.cacheVersion||0}|${q.toFixed(2)}`; if(surfaceCache.has(key)) return surfaceCache.get(key);
+    const c=document.createElement('canvas'); c.width=Math.max(1,Math.ceil(logicalW*q)); c.height=Math.max(1,Math.ceil(logicalH*q)); const g=c.getContext('2d'); g.scale(q,q);
+    const offsetX=pad-b.minX, offsetY=pad-b.minY; const mask=document.createElement('canvas'); mask.width=c.width; mask.height=c.height; const mg=mask.getContext('2d'); mg.scale(q,q); drawDecorBase(mg,obj,offsetX,offsetY,true);
+    if(outerShadows.length){ for(let i=outerShadows.length-1;i>=0;i--){ const s=outerShadows[i], scaled={...s,distance:(Number(s.distance)||0)*q,spread:(Number(s.spread)||0)*q,size:(Number(s.size)||0)*q}; const layer=outerShadowLayer(mask,scaled); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); } }
+    for(let i=outside.length-1;i>=0;i--){ const s=outside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q*2),s.color,s.opacity,'outside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
+    drawDecorBase(g,obj,offsetX,offsetY,false);
+    for(let i=center.length-1;i>=0;i--){ const s=center[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q),s.color,s.opacity,'center'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
+    for(let i=inside.length-1;i>=0;i--){ const s=inside[i]; const layer=dilatedMask(mask,Math.max(0.1,(Number(s.width)||0)*q*2),s.color,s.opacity,'inside'); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); }
+    if(innerShadows.length){ for(const s of innerShadows){ const scaled={...s,distance:(Number(s.distance)||0)*q,size:(Number(s.size)||0)*q}; const layer=groupInnerShadowLayer(mask,scaled); g.save(); g.setTransform(1,0,0,1,0,0); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); g.setTransform(q,0,0,q,0,0); } }
+    return cacheMapSet(surfaceCache,key,{canvas:c,logicalW,logicalH,pad},180);
+  }
   function renderCharSurface(ch, quality=2){
     const q = clamp(quality,1,6);
     const key = `${ch.id}|${ch.cacheVersion||0}|${q.toFixed(2)}`;
@@ -1053,24 +1178,33 @@
     return true;
   }
   function scheduleDrawPausePolish(it){
-    if(!it || (it.type!=='draw' && it.type!=='paint')) return;
+    if(!it || (it.type!=='draw' && it.type!=='paint' && it.type!=='decorCreate')) return;
     if(it.pauseTimer) clearTimeout(it.pauseTimer);
     it.pauseTimer=setTimeout(()=>{
-      if(state.interaction!==it || (it.type!=='draw' && it.type!=='paint')) return;
-      const source=it.type==='paint' ? state.paintStrokes : state.drawings;
-      const stroke=source.find(d=>d.id===it.strokeId);
+      if(state.interaction!==it || (it.type!=='draw' && it.type!=='paint' && it.type!=='decorCreate')) return;
+      let stroke=null;
+      if(it.type==='paint') stroke=state.paintStrokes.find(d=>d.id===it.strokeId);
+      else if(it.type==='draw') stroke=state.drawings.find(d=>d.id===it.strokeId);
+      else stroke=charById(it.id);
       if(!stroke) return;
       if(polishStroke(stroke,true)){
         it.lastSmooth=stroke.points[stroke.points.length-1]||it.lastSmooth;
         it.pausePolished=true;
         if(it.type==='paint') invalidatePaintAnchor(stroke.anchor);
+        if(it.type==='decorCreate') markDirty(stroke);
         render();
       }
     },2000);
   }
-  function setDrawMode(enabled){ state.drawTool.enabled=!!enabled; if(enabled) state.paintTool.enabled=false; shell.classList.toggle('draw-active',state.drawTool.enabled||state.paintTool.enabled); ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.drawTool.enabled); if(b) b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }); ['paintModeBtn','paintModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.paintTool.enabled); if(b) b.textContent=state.paintTool.enabled?'색칠하기 모드 끄기':'색칠하기 모드'; }); }
-  function setPaintMode(enabled){ state.paintTool.enabled=!!enabled; if(enabled) state.drawTool.enabled=false; shell.classList.toggle('draw-active',state.drawTool.enabled||state.paintTool.enabled); ['paintModeBtn','paintModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.paintTool.enabled); if(b) b.textContent=state.paintTool.enabled?'색칠하기 모드 끄기':'색칠하기 모드'; }); ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.drawTool.enabled); if(b) b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }); }
+  function syncToolShell(){ shell.classList.toggle('draw-active', !!(state.drawTool.enabled||state.paintTool.enabled||state.stampTool.enabled||state.decorTool.enabled)); }
+  function refreshStampButtons(){ document.querySelectorAll('#stampTypeGrid [data-stamp-type]').forEach(btn=>btn.classList.toggle('draw-mode-active',btn.dataset.stampType===(state.stampTool.shape||'circle'))); }
+  function setDrawMode(enabled){ state.drawTool.enabled=!!enabled; if(enabled){ state.paintTool.enabled=false; state.stampTool.enabled=false; state.decorTool.enabled=false; } syncToolShell(); ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.drawTool.enabled); if(b) b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }); ['paintModeBtn','paintModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.paintTool.enabled); if(b) b.textContent=state.paintTool.enabled?'색칠하기 모드 끄기':'색칠하기 모드'; }); const sb=$('stampModeBtn2'); if(sb){ sb.classList.toggle('draw-mode-active',state.stampTool.enabled); sb.textContent=state.stampTool.enabled?'스탬프 모드 끄기':'스탬프 모드 켜기/끄기'; } const deco=$('decorModeBtn2'); if(deco){ deco.classList.toggle('draw-mode-active',state.decorTool.enabled); deco.textContent=state.decorTool.enabled?'장식 펜 모드 끄기':'장식 펜 모드 켜기/끄기'; } refreshStampButtons(); }
+  function setPaintMode(enabled){ state.paintTool.enabled=!!enabled; if(enabled){ state.drawTool.enabled=false; state.stampTool.enabled=false; state.decorTool.enabled=false; } syncToolShell(); ['paintModeBtn','paintModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.paintTool.enabled); if(b) b.textContent=state.paintTool.enabled?'색칠하기 모드 끄기':'색칠하기 모드'; }); ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('draw-mode-active',state.drawTool.enabled); if(b) b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }); const sb=$('stampModeBtn2'); if(sb){ sb.classList.toggle('draw-mode-active',state.stampTool.enabled); sb.textContent=state.stampTool.enabled?'스탬프 모드 끄기':'스탬프 모드 켜기/끄기'; } const deco=$('decorModeBtn2'); if(deco){ deco.classList.toggle('draw-mode-active',state.decorTool.enabled); deco.textContent=state.decorTool.enabled?'장식 펜 모드 끄기':'장식 펜 모드 켜기/끄기'; } refreshStampButtons(); }
+  function setStampMode(enabled){ state.stampTool.enabled=!!enabled; if(enabled){ state.drawTool.enabled=false; state.paintTool.enabled=false; state.decorTool.enabled=false; } syncToolShell(); const sb=$('stampModeBtn2'); if(sb){ sb.classList.toggle('draw-mode-active',state.stampTool.enabled); sb.textContent=state.stampTool.enabled?'스탬프 모드 끄기':'스탬프 모드 켜기/끄기'; } ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b){ b.classList.toggle('draw-mode-active',state.drawTool.enabled); b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }}); ['paintModeBtn','paintModeBtn2'].forEach(id=>{ const b=$(id); if(b){ b.classList.toggle('draw-mode-active',state.paintTool.enabled); b.textContent=state.paintTool.enabled?'색칠하기 모드 끄기':'색칠하기 모드'; }}); const deco=$('decorModeBtn2'); if(deco){ deco.classList.toggle('draw-mode-active',state.decorTool.enabled); deco.textContent=state.decorTool.enabled?'장식 펜 모드 끄기':'장식 펜 모드 켜기/끄기'; } refreshStampButtons(); }
+  function setDecorMode(enabled){ state.decorTool.enabled=!!enabled; if(enabled){ state.drawTool.enabled=false; state.paintTool.enabled=false; state.stampTool.enabled=false; } syncToolShell(); const deco=$('decorModeBtn2'); if(deco){ deco.classList.toggle('draw-mode-active',state.decorTool.enabled); deco.textContent=state.decorTool.enabled?'장식 펜 모드 끄기':'장식 펜 모드 켜기/끄기'; } ['drawModeBtn','drawModeBtn2'].forEach(id=>{ const b=$(id); if(b){ b.classList.toggle('draw-mode-active',state.drawTool.enabled); b.textContent=state.drawTool.enabled?'그리기 모드 끄기':'그리기 모드'; }}); ['paintModeBtn','paintModeBtn2'].forEach(id=>{ const b=$(id); if(b){ b.classList.toggle('draw-mode-active',state.paintTool.enabled); b.textContent=state.paintTool.enabled?'색칠하기 모드 끄기':'색칠하기 모드'; }}); const sb=$('stampModeBtn2'); if(sb){ sb.classList.toggle('draw-mode-active',state.stampTool.enabled); sb.textContent=state.stampTool.enabled?'스탬프 모드 끄기':'스탬프 모드 켜기/끄기'; } refreshStampButtons(); }
   function updateDrawToolUI(){ const color=normalizeHexInput(state.drawTool.color,'#FF5AA5'); state.drawTool.color=color; if($('drawColor'))$('drawColor').value=color; if($('drawColorHex'))$('drawColorHex').value=color; if($('drawBrushSize'))$('drawBrushSize').value=state.drawTool.size; if($('drawBrushSizeValue'))$('drawBrushSizeValue').textContent=`${state.drawTool.size} px`; if($('drawBrushType')) $('drawBrushType').value=state.drawTool.brushType||'pen'; if($('drawAssistMode')) $('drawAssistMode').value=state.drawTool.assistMode||'freehand'; const btn=$('drawBelowTextBtn'); if(btn) btn.textContent = state.drawTool.aboveText===false ? '선은 글자 아래에 표시' : '선은 글자 위에 표시'; setDrawMode(state.drawTool.enabled); }
+  function updateStampToolUI(){ const fill=normalizeHexInput(state.stampTool.fill,'#FFFFFF'); const stroke=normalizeHexInput(state.stampTool.strokeColor,'#8FC8FF'); state.stampTool.fill=fill; state.stampTool.strokeColor=stroke; state.stampTool.size=Math.max(16,Number(state.stampTool.size)||96); if($('stampFillColor')) $('stampFillColor').value=fill; if($('stampFillHex')) $('stampFillHex').value=fill; if($('stampStrokeColor')) $('stampStrokeColor').value=stroke; if($('stampStrokeHex')) $('stampStrokeHex').value=stroke; if($('stampStrokeWidth')) $('stampStrokeWidth').value=String(clamp(Number(state.stampTool.strokeWidth)||0,0,80)); if($('stampBaseSize')) $('stampBaseSize').value=String(state.stampTool.size); if($('stampBaseSizeValue')) $('stampBaseSizeValue').textContent=`${state.stampTool.size} px`; setStampMode(state.stampTool.enabled); }
+  function updateDecorToolUI(){ const color=normalizeHexInput(state.decorTool.color,'#FFFFFF'); const outline=normalizeHexInput(state.decorTool.outlineColor,'#8FC8FF'); state.decorTool.color=color; state.decorTool.outlineColor=outline; state.decorTool.size=Math.max(1,Number(state.decorTool.size)||14); state.decorTool.outlineWidth=clamp(Number(state.decorTool.outlineWidth)||0,0,80); state.decorTool.stabilize=clamp(Number(state.decorTool.stabilize)||0.88,0,0.98); if($('decorColor')) $('decorColor').value=color; if($('decorColorHex')) $('decorColorHex').value=color; if($('decorOutlineColor')) $('decorOutlineColor').value=outline; if($('decorOutlineHex')) $('decorOutlineHex').value=outline; if($('decorOutlineWidth')) $('decorOutlineWidth').value=String(state.decorTool.outlineWidth); if($('decorSize')) $('decorSize').value=String(state.decorTool.size); if($('decorSizeValue')) $('decorSizeValue').textContent=`${state.decorTool.size} px`; if($('decorBrushType')) $('decorBrushType').value=state.decorTool.brushType||'pen'; if($('decorAssistMode')) $('decorAssistMode').value=state.decorTool.assistMode||'freehand'; if($('decorStabilize')) $('decorStabilize').value=String(state.decorTool.stabilize.toFixed(2)); setDecorMode(state.decorTool.enabled); }
   function paintStrokeLabel(stroke,index){ const anchor=stroke.anchor?.type==='group' ? `그룹 ${String(stroke.anchor.id).slice(-4)}` : stroke.anchor?.type==='char' ? `${charById(stroke.anchor.id)?.text||'글자'}(${String(stroke.anchor.id).slice(-4)})` : '전역'; const mode=stroke.mode==='erase'?'지우개':(stroke.fillMode==='linear'?'그라데이션':'단색'); return `칠 ${index+1} · ${anchor} · ${mode}`; }
   function renderPaintLayerList(){ const box=$('paintLayerList'); if(!box) return; box.innerHTML=''; if(!state.paintStrokes.length){ box.innerHTML='<div class="hint">색칠 레이어가 없습니다. 글자나 같은 그룹을 선택한 뒤 색칠하기 모드를 사용하세요.</div>'; return; } state.paintStrokes.forEach((stroke,index)=>{ const row=document.createElement('button'); row.type='button'; row.className='effect-item'; if(stroke.id===state.activePaintId) row.classList.add('active'); row.style.textAlign='left'; row.innerHTML=`<div class="effect-head"><strong>${paintStrokeLabel(stroke,index)}</strong><div class="effect-buttons"><span class="mini-icon">${stroke.mode==='erase'?'E':(stroke.fillMode==='linear'?'G':'S')}</span></div></div><div class="hint">크기 ${Number(stroke.size)||1}px · 보정 ${stroke.assistMode||'freehand'} · 혼합 ${stroke.blend||'normal'} · 포인트 ${(stroke.points||[]).length}개</div>`; row.addEventListener('click',()=>{ state.activePaintId=stroke.id; renderPaintLayerList(); }); box.appendChild(row); }); }
   function updatePaintToolUI(){ const color=normalizeHexInput(state.paintTool.color,'#7C5CFF'); state.paintTool.color=color; state.paintTool.color2=normalizeHexInput(state.paintTool.color2||'#FFFFFF','#FFFFFF'); state.paintTool.fillMode=state.paintTool.fillMode||'solid'; state.paintTool.gradientAngle=Number(state.paintTool.gradientAngle)||90; if($('paintColor'))$('paintColor').value=color; if($('paintColorHex'))$('paintColorHex').value=color; if($('paintColor2'))$('paintColor2').value=state.paintTool.color2; if($('paintColor2Hex'))$('paintColor2Hex').value=state.paintTool.color2; if($('paintFillMode'))$('paintFillMode').value=state.paintTool.fillMode; if($('paintGradientAngle'))$('paintGradientAngle').value=state.paintTool.gradientAngle; if($('paintBrushSize'))$('paintBrushSize').value=state.paintTool.size; if($('paintBrushSizeValue'))$('paintBrushSizeValue').textContent=`${state.paintTool.size} px`; if($('paintToolMode')) $('paintToolMode').value=state.paintTool.mode||'paint'; if($('paintAssistMode')) $('paintAssistMode').value=state.paintTool.assistMode||'freehand'; if($('paintBlendMode')) $('paintBlendMode').value=state.paintTool.blend||'normal'; if($('paintTargetHintBtn')) $('paintTargetHintBtn').textContent = state.paintTool.mode==='erase' ? '지우개 · 선택 글자/그룹 안에서만 삭제' : '선택 글자/그룹 안에만 칠함'; setPaintMode(state.paintTool.enabled); }
@@ -1114,6 +1248,16 @@
 
   canvas.addEventListener('pointerdown',(e)=>{
     canvas.setPointerCapture(e.pointerId); const p=eventPoint(e);
+    if(state.stampTool.enabled){
+      const stamp=newStampObject(state.stampTool.shape||'circle',p.x,p.y);
+      state.chars.push(stamp); clearRuntimeCaches(); setSelection([stamp.id],stamp.id); pushHistory(); updateAll(); return;
+    }
+    if(state.decorTool.enabled){
+      const obj=newDecorObject([p]);
+      state.chars.push(obj); setSelection([obj.id],obj.id);
+      state.interaction={type:'decorCreate',id:obj.id,worldPoints:[p],lastRaw:p,lastSmooth:p,pauseTimer:null,pausePolished:false};
+      renderScheduled(); return;
+    }
     if(state.paintTool.enabled){
       const anchor=paintAnchorForSelection();
       if(!anchor){ toast('색칠하기는 글자 1개 또는 같은 그룹을 먼저 선택한 뒤 사용할 수 있습니다.'); return; }
@@ -1164,12 +1308,20 @@
       if(!last || Math.hypot(smooth.x-last.x,smooth.y-last.y) >= Math.max(0.8, stroke.size*0.08)) stroke.points.push(smooth);
       it.lastRaw=p; it.lastSmooth=smoothWorld; it.pausePolished=false; scheduleDrawPausePolish(it); beginDraftPreview(120); renderScheduled(); return;
     }
+    if(it.type==='decorCreate'){
+      const obj=charById(it.id); if(!obj) return;
+      const stabilize=clamp(Number(state.decorTool.stabilize)||0.88,0,0.98), alpha=1-stabilize;
+      const prev=it.lastSmooth||p; const smooth={x:prev.x+(p.x-prev.x)*alpha, y:prev.y+(p.y-prev.y)*alpha};
+      const last=(it.worldPoints||[])[(it.worldPoints||[]).length-1];
+      if(!last || Math.hypot(smooth.x-last.x,smooth.y-last.y)>=Math.max(0.8,(Number(obj.size)||1)*0.08)) it.worldPoints.push(smooth);
+      setDecorWorldPoints(obj,it.worldPoints); it.lastRaw=p; it.lastSmooth=smooth; it.pausePolished=false; scheduleDrawPausePolish(it); beginDraftPreview(120); updateInspectorTransformOnly(); renderScheduled(); return;
+    }
     if(it.type==='move'){ const dx=p.x-it.start.x,dy=p.y-it.start.y; for(const o of it.origins){const c=charById(o.id);if(c&&!c.locked){c.x=o.x+dx;c.y=o.y+dy;}} }
     else if(it.type==='rotate'){ const c=charById(it.id);if(c){ const a=Math.atan2(p.y-c.y,p.x-c.x); let deg=it.startObjAngle+(a-it.startPointerAngle)*180/Math.PI; if(e.shiftKey)deg=Math.round(deg/15)*15;c.angle=deg; } }
     else if(it.type==='scale'){ const c=charById(it.id);if(c){const d=Math.max(1,Math.hypot(p.x-c.x,p.y-c.y));c.scale=clamp(it.startScale*(d/it.startDist),.05,20);} }
     beginDraftPreview(120); updateInspectorTransformOnly(); renderScheduled();
   });
-  function finishInteraction(){ if(state.interaction){ const current=state.interaction; const wasDraw=current.type==='draw'; const wasPaint=current.type==='paint'; if(current.pauseTimer) clearTimeout(current.pauseTimer); state.interaction=null; if(wasDraw){ const last=state.drawings[state.drawings.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; else if(last) polishStroke(last,false); } if(wasPaint){ const last=state.paintStrokes[state.paintStrokes.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; else if(last) polishStroke(last,false); if(last) invalidatePaintAnchor(last.anchor); renderPaintLayerList(); } state.performance.draftUntil=0; groupEffectCache.clear(); pushHistory();updateLayers();updateInspector(); render(); } }
+  function finishInteraction(){ if(state.interaction){ const current=state.interaction; const wasDraw=current.type==='draw'; const wasPaint=current.type==='paint'; const wasDecor=current.type==='decorCreate'; if(current.pauseTimer) clearTimeout(current.pauseTimer); state.interaction=null; if(wasDraw){ const last=state.drawings[state.drawings.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; else if(last) polishStroke(last,false); } if(wasPaint){ const last=state.paintStrokes[state.paintStrokes.length-1]; if(last && (!last.points || last.points.length<2)) last.points=[...(last.points||[]), ...(last.points||[])]; else if(last) polishStroke(last,false); if(last) invalidatePaintAnchor(last.anchor); renderPaintLayerList(); } if(wasDecor){ const obj=charById(current.id); if(obj){ if(!obj.points || obj.points.length<2) obj.points=[...(obj.points||[]), ...(obj.points||[])]; polishStroke(obj,false); markDirty(obj); } } state.performance.draftUntil=0; groupEffectCache.clear(); pushHistory();updateLayers();updateInspector(); render(); } }
   canvas.addEventListener('pointerup',finishInteraction); canvas.addEventListener('pointercancel',finishInteraction);
   window.addEventListener('keydown',(e)=>{
     const tag=(document.activeElement&&document.activeElement.tagName||'').toLowerCase(); const editing=['input','textarea','select'].includes(tag);
@@ -1340,6 +1492,15 @@
       $('charText').disabled=true; $('charFontSize').disabled=true; $('charFontFamily').disabled=true; $('charFill').disabled=true; $('charFillHex').disabled=true; $('charFillMode').disabled=true;
       renderStrokeList(c);renderInnerShadowList(c);renderOuterShadowList(c); return;
     }
+    if(isGraphicObject(c)){
+      const primary=isStampObject(c)?normalizeHex(c.fill||'#FFFFFF'):normalizeHex(c.color||'#FFFFFF');
+      $('charText').value=c.name||objectLabel(c);
+      $('charFontSize').value=Math.round(isStampObject(c)?(c.baseSize||0):(c.size||0));
+      $('charFontFamily').value=isStampObject(c)?'[스탬프 레이어]':'[장식 펜 레이어]';
+      $('charFill').value=primary; $('charFillHex').value=primary; $('charFillMode').value='solid'; $('gradientEditor').classList.add('hidden');
+      $('charText').disabled=false; $('charFontSize').disabled=true; $('charFontFamily').disabled=true; $('charFill').disabled=false; $('charFillHex').disabled=false; $('charFillMode').disabled=true;
+      renderStrokeList(c);renderInnerShadowList(c);renderOuterShadowList(c); renderBevelRecommendations(primary); return;
+    }
     $('charText').disabled=false; $('charFontSize').disabled=false; $('charFontFamily').disabled=false; $('charFill').disabled=false; $('charFillHex').disabled=false; $('charFillMode').disabled=false;
     ensureGradient(c); $('charText').value=c.text;$('charFontSize').value=c.fontSize;$('charFontFamily').value=c.fontFamily; if($('fontSelect') && [...$('fontSelect').options].some(o=>o.value===c.fontFamily)) $('fontSelect').value=c.fontFamily;$('charFill').value=normalizeHex(c.fill);$('charFillHex').value=normalizeHex(c.fill);$('charFillMode').value=c.fillMode||'solid';$('gradientEditor').classList.toggle('hidden',(c.fillMode||'solid')==='solid');$('gradientAngle').value=c.gradient.angle;$('gradientRange').value=c.gradient.range;$('gradientCenterX').value=c.gradient.centerX;$('gradientCenterY').value=c.gradient.centerY;
     renderGradientStops(c); renderGradientPreview(c); renderStrokeList(c);renderInnerShadowList(c);renderOuterShadowList(c); renderBevelRecommendations(c.fill);
@@ -1453,7 +1614,8 @@
   function ungroup(){const c=activeChar();if(!c||!c.groupId)return;const gid=c.groupId;groupMembers(gid).forEach(x=>x.groupId=null); state.groups=state.groups.filter(g=>g.id!==gid); updateAll();pushHistory();toast('그룹을 해제했습니다.');}
 
   function updateLayers(){
-    const box=$('layerList');box.innerHTML='';[...state.chars].reverse().forEach(ch=>{const row=document.createElement('div');row.className='layer-row'+(ch.id===state.activeId?' active':'')+(state.selectedIds.has(ch.id)?' selected':'');row.draggable=true;row.dataset.id=ch.id; const title=isImageObject(ch)?escapeHtml(ch.name||'사진'):escapeHtml(ch.text); const meta=isImageObject(ch)?`사진 · ${Math.round(ch.imageWidth||0)}×${Math.round(ch.imageHeight||0)} · ${Math.round(ch.angle||0)}°`: `${escapeHtml(ch.fontFamily)} · ${Math.round(ch.fontSize)}px · ${Math.round(ch.angle||0)}°`; row.innerHTML=`<button class="layer-eye" title="표시/숨김">${ch.visible===false?'○':'●'}</button><button class="layer-lock" title="잠금">${ch.locked?'🔒':'🔓'}</button><div class="layer-name"><strong>${title}</strong><span>${meta}</span></div>${ch.groupId?`<span class="group-dot" title="${isGroupLinked(ch.groupId)?'그룹 잠금':'그룹 잠금 해제'}"></span>`:'<span></span>'}`;
+    const box=$('layerList');box.innerHTML='';
+    [...state.chars].reverse().forEach(ch=>{const row=document.createElement('div');row.className='layer-row'+(ch.id===state.activeId?' active':'')+(state.selectedIds.has(ch.id)?' selected':'');row.draggable=true;row.dataset.id=ch.id; const title=escapeHtml(objectLabel(ch)); const meta=isImageObject(ch)?`사진 · ${Math.round(ch.imageWidth||0)}×${Math.round(ch.imageHeight||0)} · ${Math.round(ch.angle||0)}°`: isStampObject(ch)?`스탬프 · ${stampShapeName(ch.shape)} · ${Math.round(ch.angle||0)}°`: isDecorObject(ch)?`${ch.brushType==='dotted'?'점선 펜':'장식 펜'} · ${Math.round(ch.size||0)}px · ${Math.round(ch.angle||0)}°`: `${escapeHtml(ch.fontFamily)} · ${Math.round(ch.fontSize)}px · ${Math.round(ch.angle||0)}°`; row.innerHTML=`<button class="layer-eye" title="표시/숨김">${ch.visible===false?'○':'●'}</button><button class="layer-lock" title="잠금">${ch.locked?'🔒':'🔓'}</button><div class="layer-name"><strong>${title}</strong><span>${meta}</span></div>${ch.groupId?`<span class="group-dot" title="${isGroupLinked(ch.groupId)?'그룹 잠금':'그룹 잠금 해제'}"></span>`:'<span></span>'}`;
       row.addEventListener('click',(e)=>{if(e.target.closest('button'))return;if(e.shiftKey){const ids=[...state.selectedIds];const ix=ids.indexOf(ch.id);if(ix>=0)ids.splice(ix,1);else ids.push(ch.id);setSelection(ids,ch.id);}else if(ch.groupId && isGroupLinked(ch.groupId))setSelection(groupMembers(ch.groupId).map(x=>x.id),ch.id);else setSelection([ch.id],ch.id);});
       row.querySelector('.layer-eye').addEventListener('click',()=>{ch.visible=ch.visible===false?true:false;render();updateLayers();pushHistory();});
       row.querySelector('.layer-lock').addEventListener('click',()=>{ch.locked=!ch.locked;render();updateLayers();pushHistory();});
@@ -1672,7 +1834,7 @@
   async function applyFontToAllTextLayers(name,{toastResult=true}={}){
     if(!name) return 0;
     await ensureFontReady(name,7000);
-    const targets=state.chars.filter(ch=>ch && !isImageObject(ch));
+    const targets=state.chars.filter(ch=>ch && isTextObject(ch));
     if(!targets.length){ if(toastResult) toast('폰트를 적용할 텍스트 글자가 없습니다.'); return 0; }
     for(const ch of targets){ ch.fontFamily=name; markDirty(ch); }
     clearRuntimeCaches(); updateAll(); pushHistory();
@@ -1682,17 +1844,17 @@
 
   function renderHarmony(colors){const box=$('harmonySwatches');box.innerHTML='';colors.forEach(c=>{const b=document.createElement('button');b.className='swatch';b.style.background=c;b.title=c;b.addEventListener('click',()=>applyColorToActive(c));box.appendChild(b);});}
   function renderBevelRecommendations(base){ const box=$('bevelSwatches'); if(!box) return; const rec=makeBevelRecommendations(base||'#9389DE'); box.innerHTML=''; [['상단빛',rec.highlight],['하단그림자',rec.shadow]].forEach(([label,colors])=>{ const row=document.createElement('div'); row.className='bevel-row'; const name=document.createElement('span'); name.textContent=label; row.appendChild(name); colors.forEach(c=>{ const b=document.createElement('button'); b.className='bevel-chip'; b.style.background=c; b.title=`${label} · ${c}`; b.addEventListener('click',()=>{ navigator.clipboard?.writeText(c).catch(()=>{}); toast(`${c} 색상을 복사했습니다.`); }); row.appendChild(b); }); box.appendChild(row); }); }
-  function applyColorToActive(color){const c=activeChar();if(!c){toast('먼저 글자를 선택하세요.');return;} if(isImageObject(c)){ toast('사진이 아닌 텍스트 글자를 선택하세요.'); return; } const hex=normalizeHexInput(color,c.fill||'#9389DE'); applyCharMutation(ch=>{ch.fill=hex;if((ch.fillMode||'solid')!=='solid'){const g=ensureGradient(ch);const mid=[...g.stops].sort((a,b)=>Math.abs(a.position-50)-Math.abs(b.position-50))[0];if(mid)mid.color=normalizeHex(hex);}}); if($('directHexInput')) $('directHexInput').value=hex; if($('harmonyBaseHex')) $('harmonyBaseHex').value=hex; if($('harmonyBaseColor')) $('harmonyBaseColor').value=hex; renderHarmony(makeHarmony(hex)); renderBevelRecommendations(hex); updateInspector(); }
+  function applyColorToActive(color){const c=activeChar();if(!c){toast('먼저 요소를 선택하세요.');return;} if(isImageObject(c)){ toast('사진 레이어에는 이 기능을 직접 적용할 수 없습니다.'); return; } const base=isTextObject(c)?(c.fill||'#9389DE'):(isStampObject(c)?(c.fill||'#FFFFFF'):(c.color||'#FFFFFF')); const hex=normalizeHexInput(color,base); applyCharMutation(ch=>{ if(isTextObject(ch)){ch.fill=hex;if((ch.fillMode||'solid')!=='solid'){const g=ensureGradient(ch);const mid=[...g.stops].sort((a,b)=>Math.abs(a.position-50)-Math.abs(b.position-50))[0];if(mid)mid.color=normalizeHex(hex);}} else if(isStampObject(ch)) ch.fill=hex; else if(isDecorObject(ch)) ch.color=hex; }); if($('directHexInput')) $('directHexInput').value=hex; if($('harmonyBaseHex')) $('harmonyBaseHex').value=hex; if($('harmonyBaseColor')) $('harmonyBaseColor').value=hex; renderHarmony(makeHarmony(hex)); renderBevelRecommendations(hex); updateInspector(); }
   function applyDirectHex(){ const hex=normalizeHexInput($('directHexInput').value, state.eyedropper.sample||'#9389DE'); $('directHexInput').value=hex; setEyedropperSample(hex); applyColorToActive(hex); }
   function renderPalettes(){const box=$('paletteList');box.innerHTML='';PALETTES.forEach(([name,colors])=>{const wrap=document.createElement('div');wrap.className='palette';wrap.innerHTML=`<div class="palette-name">${name}</div><div class="palette-colors"></div>`;const row=wrap.querySelector('.palette-colors');colors.forEach(c=>{const b=document.createElement('button');b.style.background=c;b.title=c;b.addEventListener('click',()=>applyColorToActive(c));row.appendChild(b)});box.appendChild(wrap);});}
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.8.2',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
-  function snapshot(){return JSON.stringify({project:state.project,chars:historyChars(),groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,groupEffectEdit:state.groupEffectEdit,eyedropper:{sample:state.eyedropper.sample}});}
+  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.9.0',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),stampTool:deepClone(state.stampTool),decorTool:deepClone(state.decorTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
+  function snapshot(){return JSON.stringify({project:state.project,chars:historyChars(),groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,stampTool:state.stampTool,decorTool:state.decorTool,groupEffectEdit:state.groupEffectEdit,eyedropper:{sample:state.eyedropper.sample}});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>50)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
-  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=restoreHistoryChars(d.chars);state.groups=(d.groups||[]).map(g=>ensureGroupDefaults(g));state.drawings=d.drawings||[];state.paintStrokes=d.paintStrokes||[]; state.activePaintId=d.activePaintId||state.paintStrokes[state.paintStrokes.length-1]?.id||null; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.paintTool=Object.assign({ enabled:false,color:'#7C5CFF',color2:'#FFFFFF',fillMode:'solid',gradientAngle:90,size:18,mode:'paint',assistMode:'freehand',blend:'normal',stabilize:0.88 }, d.paintTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false; state.eyedropper.sample=(d.eyedropper&&d.eyedropper.sample)||state.eyedropper.sample||'#9389DE';clearRuntimeCaches();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll(); if(state.eyedropper.imageDataUrl){ loadEyedropperDataUrl(state.eyedropper.imageDataUrl,'복원된 예시 사진').catch(()=>drawEyedropperPlaceholder()); } else drawEyedropperPlaceholder(); setEyedropperSample(state.eyedropper.sample||'#9389DE'); }
+  function restoreSnapshot(s){state.suppressHistory=true;const d=JSON.parse(s);state.project=d.project;state.chars=restoreHistoryChars(d.chars);state.groups=(d.groups||[]).map(g=>ensureGroupDefaults(g));state.drawings=d.drawings||[];state.paintStrokes=d.paintStrokes||[]; state.activePaintId=d.activePaintId||state.paintStrokes[state.paintStrokes.length-1]?.id||null; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.paintTool=Object.assign({ enabled:false,color:'#7C5CFF',color2:'#FFFFFF',fillMode:'solid',gradientAngle:90,size:18,mode:'paint',assistMode:'freehand',blend:'normal',stabilize:0.88 }, d.paintTool||{}); state.stampTool=Object.assign({ enabled:false, shape:'circle', fill:'#FFFFFF', strokeColor:'#8FC8FF', strokeWidth:10, size:96 }, d.stampTool||{}); state.decorTool=Object.assign({ enabled:false,color:'#FFFFFF',outlineColor:'#8FC8FF',outlineWidth:6,size:14,brushType:'pen',assistMode:'freehand',stabilize:0.88 }, d.decorTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false; state.eyedropper.sample=(d.eyedropper&&d.eyedropper.sample)||state.eyedropper.sample||'#9389DE';clearRuntimeCaches();state.selectedIds=new Set();state.activeId=null;$('canvasWidth').value=state.project.width;$('canvasHeight').value=state.project.height;state.suppressHistory=false;resizeDisplay();updateAll(); if(state.eyedropper.imageDataUrl){ loadEyedropperDataUrl(state.eyedropper.imageDataUrl,'복원된 예시 사진').catch(()=>drawEyedropperPlaceholder()); } else drawEyedropperPlaceholder(); setEyedropperSample(state.eyedropper.sample||'#9389DE'); }
   function undo(){if(state.historyIndex<=0)return;state.historyIndex--;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function redo(){if(state.historyIndex>=state.history.length-1)return;state.historyIndex++;restoreSnapshot(state.history[state.historyIndex]);updateHistoryButtons();}
   function updateHistoryButtons(){$('undoBtn').disabled=state.historyIndex<=0;$('redoBtn').disabled=state.historyIndex>=state.history.length-1;}
@@ -1703,7 +1865,7 @@
     if(!file)return;
     try{
       const d=JSON.parse(await file.text());if(!d.project||!Array.isArray(d.chars))throw new Error('format');
-      state.project=d.project;state.chars=d.chars;rememberImageAssets(state.chars);state.groups=(d.groups||[]).map(g=>ensureGroupDefaults(g));state.drawings=d.drawings||[];state.paintStrokes=d.paintStrokes||[]; state.activePaintId=d.activePaintId||state.paintStrokes[state.paintStrokes.length-1]?.id||null; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.paintTool=Object.assign({ enabled:false,color:'#7C5CFF',color2:'#FFFFFF',fillMode:'solid',gradientAngle:90,size:18,mode:'paint',assistMode:'freehand',blend:'normal',stabilize:0.88 }, d.paintTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false; state.eyedropper=Object.assign({ sample:'#9389DE', imageDataUrl:null, imageWidth:0, imageHeight:0 }, d.eyedropper||{});
+      state.project=d.project;state.chars=d.chars;rememberImageAssets(state.chars);state.groups=(d.groups||[]).map(g=>ensureGroupDefaults(g));state.drawings=d.drawings||[];state.paintStrokes=d.paintStrokes||[]; state.activePaintId=d.activePaintId||state.paintStrokes[state.paintStrokes.length-1]?.id||null; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.paintTool=Object.assign({ enabled:false,color:'#7C5CFF',color2:'#FFFFFF',fillMode:'solid',gradientAngle:90,size:18,mode:'paint',assistMode:'freehand',blend:'normal',stabilize:0.88 }, d.paintTool||{}); state.stampTool=Object.assign({ enabled:false, shape:'circle', fill:'#FFFFFF', strokeColor:'#8FC8FF', strokeWidth:10, size:96 }, d.stampTool||{}); state.decorTool=Object.assign({ enabled:false,color:'#FFFFFF',outlineColor:'#8FC8FF',outlineWidth:6,size:14,brushType:'pen',assistMode:'freehand',stabilize:0.88 }, d.decorTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false; state.eyedropper=Object.assign({ sample:'#9389DE', imageDataUrl:null, imageWidth:0, imageHeight:0 }, d.eyedropper||{});
       if(d.effectPresets)mergeEffectPresets(d.effectPresets); if(d.fontTransformPolicies&&typeof d.fontTransformPolicies==='object'){ state.fontTransformPolicies={...state.fontTransformPolicies,...d.fontTransformPolicies}; persistFontTransformPolicies(); } if(d.paintPresets){ state.paintPresets=normalizePaintPresetLibrary(d.paintPresets); persistPaintPresets(); }
       for(const f of (d.customFonts||[])){
         if(!f||!f.name)continue;
@@ -1715,7 +1877,7 @@
   }
 
   async function ensureProjectFontsReady(timeoutMs=4500){
-    const names=[...new Set(state.chars.filter(ch=>!isImageObject(ch)&&ch.fontFamily).map(ch=>ch.fontFamily))];
+    const names=[...new Set(state.chars.filter(ch=>isTextObject(ch)&&ch.fontFamily).map(ch=>ch.fontFamily))];
     if(!names.length)return;
     await Promise.all(names.map(name=>ensureFontReady(name,timeoutMs).catch(()=>false)));
   }
@@ -1816,18 +1978,18 @@
     const visible=state.chars.filter(c=>c.visible!==false);if(!visible.length){toast('저장할 요소가 없습니다.');return;}const scale=Number($('exportScale').value)||1,mode=$('perCharMode').value,base=sanitizeFilename($('exportName').value),folder=`${base}_characters/`;try{await ensureProjectFontsReady();await document.fonts.ready;groupEffectCache.clear();const files=[];for(let i=0;i<visible.length;i++){const ch=visible[i],out=drawProjectToCanvas(scale,ch,mode),blob=await canvasBlob(out),safe=sanitizeFilename(isImageObject(ch)?(ch.name||`image_${i+1}`):ch.text)||`item_${i+1}`;files.push({name:`${folder}${String(i+1).padStart(2,'0')}_${safe}.png`,blob});}const zip=await makeZip(files);downloadBlob(zip,`${base}_characters.zip`);toast(`${files.length}개 요소 PNG를 ZIP으로 저장했습니다.`);}catch(e){console.error(e);toast('요소별 ZIP 저장에 실패했습니다.');}
   }
 
-  function copyStyle(){ const c=activeChar(); if(!c || isImageObject(c)){toast('스타일을 복사할 텍스트 글자를 선택하세요.'); return;} state.styleClipboard=charStyleSnapshot(c); toast('스타일을 복사했습니다.'); }
-  function pasteStyle(){ if(!state.styleClipboard){toast('복사된 스타일이 없습니다.'); return;} const targets=(state.selectedIds.size?[...state.selectedIds].map(charById).filter(Boolean):[activeChar()].filter(Boolean)).filter(ch=>!isImageObject(ch)); if(!targets.length){toast('스타일을 붙여넣을 텍스트 글자를 선택하세요.'); return;} targets.forEach(ch=>applyStyleSnapshot(ch,state.styleClipboard)); groupEffectCache.clear(); updateAll(); pushHistory(); toast(`${targets.length}개 글자에 스타일을 붙여넣었습니다.`); }
+  function copyStyle(){ const c=activeChar(); if(!c || !isTextObject(c)){toast('스타일을 복사할 텍스트 글자를 선택하세요.'); return;} state.styleClipboard=charStyleSnapshot(c); toast('스타일을 복사했습니다.'); }
+  function pasteStyle(){ if(!state.styleClipboard){toast('복사된 스타일이 없습니다.'); return;} const targets=(state.selectedIds.size?[...state.selectedIds].map(charById).filter(Boolean):[activeChar()].filter(Boolean)).filter(ch=>isTextObject(ch)); if(!targets.length){toast('스타일을 붙여넣을 텍스트 글자를 선택하세요.'); return;} targets.forEach(ch=>applyStyleSnapshot(ch,state.styleClipboard)); groupEffectCache.clear(); updateAll(); pushHistory(); toast(`${targets.length}개 글자에 스타일을 붙여넣었습니다.`); }
 
-  function updateAll(){updateInspector();updateLayers();updateDrawToolUI();updatePaintToolUI();renderPaintPresetControls();renderPaintLayerList();updateFontTransformUI();render();updateHistoryButtons();}
+  function updateAll(){updateInspector();updateLayers();updateDrawToolUI();updateStampToolUI();updateDecorToolUI();updatePaintToolUI();renderPaintPresetControls();renderPaintLayerList();updateFontTransformUI();render();updateHistoryButtons();}
 
   function bindInspector(){
-    $('charText').addEventListener('input',e=>applyCharMutation(c=>{ if(isImageObject(c)) c.name=e.target.value||'사진'; else c.text=e.target.value||' '; }));
-    $('charFontSize').addEventListener('input',e=>applyCharMutation(c=>{ if(isImageObject(c)) return; c.fontSize=clamp(Number(e.target.value)||8,8,1200); }));
-    $('charFontFamily').addEventListener('change',async e=>{ const name=e.target.value; const c=activeChar(); if(!c || isImageObject(c)) return; if($('fontSearchInput')) $('fontSearchInput').value=''; refreshFontSelects(); if($('fontSelect')) $('fontSelect').value=name; await applyFontToAllTextLayers(name); });
-    $('charFillMode').addEventListener('change',e=>{const c=activeChar(); if(!c || isImageObject(c)) return; applyCharMutation(c=>{c.fillMode=e.target.value;ensureGradient(c)});updateInspector();});
-    $('charFill').addEventListener('input',e=>{const c=activeChar(); if(!c || isImageObject(c)) return; const h=normalizeHex(e.target.value);$('charFillHex').value=h;applyCharMutation(c=>{c.fill=h;if((c.fillMode||'solid')!=='solid'){const g=ensureGradient(c),mid=[...g.stops].sort((a,b)=>Math.abs(a.position-50)-Math.abs(b.position-50))[0];if(mid)mid.color=h;}})});
-    $('charFillHex').addEventListener('change',e=>{const c=activeChar(); if(!c || isImageObject(c)) return; const h=normalizeHex(e.target.value,activeChar()?.fill||'#000000');e.target.value=h;$('charFill').value=h;applyCharMutation(c=>{c.fill=h;if((c.fillMode||'solid')!=='solid'){const g=ensureGradient(c),mid=[...g.stops].sort((a,b)=>Math.abs(a.position-50)-Math.abs(b.position-50))[0];if(mid)mid.color=h;}})});
+    $('charText').addEventListener('input',e=>applyCharMutation(c=>{ if(isImageObject(c) || isGraphicObject(c)) c.name=e.target.value||objectLabel(c); else c.text=e.target.value||' '; }));
+    $('charFontSize').addEventListener('input',e=>applyCharMutation(c=>{ if(!isTextObject(c)) return; c.fontSize=clamp(Number(e.target.value)||8,8,1200); }));
+    $('charFontFamily').addEventListener('change',async e=>{ const name=e.target.value; const c=activeChar(); if(!c || !isTextObject(c)) return; if($('fontSearchInput')) $('fontSearchInput').value=''; refreshFontSelects(); if($('fontSelect')) $('fontSelect').value=name; await applyFontToAllTextLayers(name); });
+    $('charFillMode').addEventListener('change',e=>{const c=activeChar(); if(!c || !isTextObject(c)) return; applyCharMutation(c=>{c.fillMode=e.target.value;ensureGradient(c)});updateInspector();});
+    $('charFill').addEventListener('input',e=>{const c=activeChar(); if(!c || isImageObject(c)) return; const h=normalizeHex(e.target.value);$('charFillHex').value=h;applyCharMutation(c=>{if(isTextObject(c)){c.fill=h;if((c.fillMode||'solid')!=='solid'){const g=ensureGradient(c),mid=[...g.stops].sort((a,b)=>Math.abs(a.position-50)-Math.abs(b.position-50))[0];if(mid)mid.color=h;}} else if(isStampObject(c)) c.fill=h; else if(isDecorObject(c)) c.color=h;})});
+    $('charFillHex').addEventListener('change',e=>{const c=activeChar(); if(!c || isImageObject(c)) return; const fallback=isTextObject(c)?(activeChar()?.fill||'#000000'):(isStampObject(c)?(activeChar()?.fill||'#FFFFFF'):(activeChar()?.color||'#FFFFFF')); const h=normalizeHex(e.target.value,fallback);e.target.value=h;$('charFill').value=h;applyCharMutation(c=>{if(isTextObject(c)){c.fill=h;if((c.fillMode||'solid')!=='solid'){const g=ensureGradient(c),mid=[...g.stops].sort((a,b)=>Math.abs(a.position-50)-Math.abs(b.position-50))[0];if(mid)mid.color=h;}} else if(isStampObject(c)) c.fill=h; else if(isDecorObject(c)) c.color=h;})});
     $('gradientAngle').addEventListener('input',e=>{const ac=activeChar(); if(!ac || isImageObject(ac)) return; applyCharMutation(c=>{ensureGradient(c).angle=Number(e.target.value)||0});renderGradientPreview(activeChar());});
     $('gradientRange').addEventListener('input',e=>{const ac=activeChar(); if(!ac || isImageObject(ac)) return; applyCharMutation(c=>{ensureGradient(c).range=clamp(Number(e.target.value)||100,1,600)});renderGradientPreview(activeChar());});
     $('gradientCenterX').addEventListener('input',e=>{const ac=activeChar(); if(!ac || isImageObject(ac)) return; applyCharMutation(c=>{const v=Number(e.target.value);ensureGradient(c).centerX=Number.isFinite(v)?clamp(v,-300,300):50});renderGradientPreview(activeChar());});
@@ -1851,14 +2013,14 @@
     $('fontManagerSearch').addEventListener('input',()=>renderFontManager(true));
     $('showMoreFontsBtn').addEventListener('click',()=>{ state.fontUi.managerLimit=(state.fontUi.managerLimit||60)+60; renderFontManager(); });
     $('refreshSavedFontListBtn').addEventListener('click',()=>refreshSavedFontLibrary());
-    $('fontSelect').addEventListener('change',async()=>{const name=$('fontSelect').value; await applyFontToAllTextLayers(name); updateFontTransformUI();}); $('fontTransformPolicy').addEventListener('change',e=>{ const name=activeChar()&&!isImageObject(activeChar())?activeChar().fontFamily:$('fontSelect').value; setFontTransformPolicy(name,e.target.value); }); $('applyFontTransformBtn').addEventListener('click',applyFontTransform); $('resetFontTransformBtn').addEventListener('click',resetFontTransform); $('fontTransformScope').addEventListener('change',updateFontTransformUI);$('makeHarmonyBtn').addEventListener('click',()=>{const h=normalizeHex($('harmonyBaseHex').value,$('harmonyBaseColor').value);$('harmonyBaseHex').value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);});$('harmonyBaseColor').addEventListener('input',e=>{$('harmonyBaseHex').value=normalizeHex(e.target.value);renderHarmony(makeHarmony(e.target.value));setEyedropperSample(e.target.value);});$('harmonyBaseHex').addEventListener('change',e=>{const h=normalizeHex(e.target.value);e.target.value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);}); $('applyDirectHexBtn').addEventListener('click',applyDirectHex); $('copyDirectHexBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('directHexInput').value,state.eyedropper.sample||'#9389DE'); $('directHexInput').value=hex; navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('directHexInput').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('eyedropperHex').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('applyEyedropperBtn').addEventListener('click',()=>applyColorToActive($('eyedropperHex').value)); $('copyEyedropperBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('eyedropperHex').value,state.eyedropper.sample||'#9389DE'); navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('eyedropperImageInput').addEventListener('change',async e=>{ try{ await loadEyedropperImage(e.target.files?.[0]); toast('예시 사진을 불러왔습니다.'); }catch(err){ console.error(err); toast('예시 사진을 불러오지 못했습니다.'); drawEyedropperPlaceholder(); } e.target.value=''; }); $('clearEyedropperImageBtn').addEventListener('click',()=>{ drawEyedropperPlaceholder(); toast('예시 사진을 지웠습니다.'); }); const eyeCanvas=$('eyedropperCanvas'); let eyeDown=false; eyeCanvas.addEventListener('pointerdown',e=>{ eyeDown=true; sampleEyedropperAtEvent(e); }); window.addEventListener('pointerup',()=>{ eyeDown=false; }); eyeCanvas.addEventListener('pointermove',e=>{ if(eyeDown) sampleEyedropperAtEvent(e); }); eyeCanvas.addEventListener('click',sampleEyedropperAtEvent);
+    $('fontSelect').addEventListener('change',async()=>{const name=$('fontSelect').value; await applyFontToAllTextLayers(name); updateFontTransformUI();}); $('fontTransformPolicy').addEventListener('change',e=>{ const name=activeChar()&&isTextObject(activeChar())?activeChar().fontFamily:$('fontSelect').value; setFontTransformPolicy(name,e.target.value); }); $('applyFontTransformBtn').addEventListener('click',applyFontTransform); $('resetFontTransformBtn').addEventListener('click',resetFontTransform); $('fontTransformScope').addEventListener('change',updateFontTransformUI);$('makeHarmonyBtn').addEventListener('click',()=>{const h=normalizeHex($('harmonyBaseHex').value,$('harmonyBaseColor').value);$('harmonyBaseHex').value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);});$('harmonyBaseColor').addEventListener('input',e=>{$('harmonyBaseHex').value=normalizeHex(e.target.value);renderHarmony(makeHarmony(e.target.value));setEyedropperSample(e.target.value);});$('harmonyBaseHex').addEventListener('change',e=>{const h=normalizeHex(e.target.value);e.target.value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);}); $('applyDirectHexBtn').addEventListener('click',applyDirectHex); $('copyDirectHexBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('directHexInput').value,state.eyedropper.sample||'#9389DE'); $('directHexInput').value=hex; navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('directHexInput').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('eyedropperHex').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('applyEyedropperBtn').addEventListener('click',()=>applyColorToActive($('eyedropperHex').value)); $('copyEyedropperBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('eyedropperHex').value,state.eyedropper.sample||'#9389DE'); navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('eyedropperImageInput').addEventListener('change',async e=>{ try{ await loadEyedropperImage(e.target.files?.[0]); toast('예시 사진을 불러왔습니다.'); }catch(err){ console.error(err); toast('예시 사진을 불러오지 못했습니다.'); drawEyedropperPlaceholder(); } e.target.value=''; }); $('clearEyedropperImageBtn').addEventListener('click',()=>{ drawEyedropperPlaceholder(); toast('예시 사진을 지웠습니다.'); }); const eyeCanvas=$('eyedropperCanvas'); let eyeDown=false; eyeCanvas.addEventListener('pointerdown',e=>{ eyeDown=true; sampleEyedropperAtEvent(e); }); window.addEventListener('pointerup',()=>{ eyeDown=false; }); eyeCanvas.addEventListener('pointermove',e=>{ if(eyeDown) sampleEyedropperAtEvent(e); }); eyeCanvas.addEventListener('click',sampleEyedropperAtEvent);
     $('addGradientStopBtn').addEventListener('click',addGradientStop);document.querySelectorAll('.gradient-preset').forEach(b=>b.addEventListener('click',()=>applyGradientPreset(b.dataset.preset)));
     $('addStrokeBtn').addEventListener('click',addStroke);$('addInnerShadowBtn').addEventListener('click',addInnerShadow);$('addOuterShadowBtn').addEventListener('click',addOuterShadow);$('makeGroupBtn').addEventListener('click',makeGroup);$('ungroupBtn').addEventListener('click',ungroup);$('toggleGroupLinkBtn').addEventListener('click',toggleGroupLink);$('groupEffectToggle').addEventListener('change',e=>{state.groupEffectEdit=e.target.checked;updateInspector();pushHistory();});if($('groupMoveToggle')) $('groupMoveToggle').addEventListener('change',e=>state.groupMove=e.target.checked);$('copyStyleBtn').addEventListener('click',copyStyle);$('pasteStyleBtn').addEventListener('click',pasteStyle);
     $('saveStrokePresetBtn').addEventListener('click',()=>saveEffectPreset('stroke'));$('applyStrokePresetBtn').addEventListener('click',()=>applyEffectPreset('stroke'));$('deleteStrokePresetBtn').addEventListener('click',()=>deleteEffectPreset('stroke'));
     $('saveShadowPresetBtn').addEventListener('click',()=>saveEffectPreset('shadow'));$('applyShadowPresetBtn').addEventListener('click',()=>applyEffectPreset('shadow'));$('deleteShadowPresetBtn').addEventListener('click',()=>deleteEffectPreset('shadow'));
     $('strokePresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('stroke');}});$('shadowPresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('shadow');}});
     $('layerTopBtn').addEventListener('click',()=>moveLayer('top'));$('layerUpBtn').addEventListener('click',()=>moveLayer('up'));$('layerDownBtn').addEventListener('click',()=>moveLayer('down'));$('layerBottomBtn').addEventListener('click',()=>moveLayer('bottom'));
-    $('fitBtn').addEventListener('click',fitPreview); $('centerSelectedBtn').addEventListener('click',centerSelected); $('centerXBtn').addEventListener('click',centerSelectedX); $('centerYBtn').addEventListener('click',centerSelectedY); ['drawModeBtn','drawModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setDrawMode(!state.drawTool.enabled);})); ['paintModeBtn','paintModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setPaintMode(!state.paintTool.enabled);}));
+    $('fitBtn').addEventListener('click',fitPreview); $('centerSelectedBtn').addEventListener('click',centerSelected); $('centerXBtn').addEventListener('click',centerSelectedX); $('centerYBtn').addEventListener('click',centerSelectedY); ['drawModeBtn','drawModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setDrawMode(!state.drawTool.enabled);})); ['paintModeBtn','paintModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setPaintMode(!state.paintTool.enabled);})); $('stampModeBtn2')?.addEventListener('click',()=>setStampMode(!state.stampTool.enabled)); $('stampBaseSize')?.addEventListener('input',e=>{state.stampTool.size=Number(e.target.value)||96; updateStampToolUI();}); $('stampFillColor')?.addEventListener('input',e=>{state.stampTool.fill=normalizeHex(e.target.value); if($('stampFillHex')) $('stampFillHex').value=state.stampTool.fill; updateStampToolUI();}); $('stampFillHex')?.addEventListener('change',e=>{state.stampTool.fill=normalizeHexInput(e.target.value,state.stampTool.fill||'#FFFFFF'); e.target.value=state.stampTool.fill; if($('stampFillColor')) $('stampFillColor').value=state.stampTool.fill; updateStampToolUI();}); $('stampStrokeColor')?.addEventListener('input',e=>{state.stampTool.strokeColor=normalizeHex(e.target.value); if($('stampStrokeHex')) $('stampStrokeHex').value=state.stampTool.strokeColor; updateStampToolUI();}); $('stampStrokeHex')?.addEventListener('change',e=>{state.stampTool.strokeColor=normalizeHexInput(e.target.value,state.stampTool.strokeColor||'#8FC8FF'); e.target.value=state.stampTool.strokeColor; if($('stampStrokeColor')) $('stampStrokeColor').value=state.stampTool.strokeColor; updateStampToolUI();}); $('stampStrokeWidth')?.addEventListener('input',e=>{state.stampTool.strokeWidth=clamp(Number(e.target.value)||0,0,80); updateStampToolUI();}); document.querySelectorAll('#stampTypeGrid [data-stamp-type]').forEach(btn=>btn.addEventListener('click',()=>{state.stampTool.shape=btn.dataset.stampType||'circle'; updateStampToolUI();})); $('decorModeBtn2')?.addEventListener('click',()=>setDecorMode(!state.decorTool.enabled)); $('decorBrushType')?.addEventListener('change',e=>{state.decorTool.brushType=e.target.value||'pen'; updateDecorToolUI();}); $('decorAssistMode')?.addEventListener('change',e=>{state.decorTool.assistMode=e.target.value||'freehand'; updateDecorToolUI();}); $('decorColor')?.addEventListener('input',e=>{state.decorTool.color=normalizeHex(e.target.value); if($('decorColorHex')) $('decorColorHex').value=state.decorTool.color; updateDecorToolUI();}); $('decorColorHex')?.addEventListener('change',e=>{state.decorTool.color=normalizeHexInput(e.target.value,state.decorTool.color||'#FFFFFF'); e.target.value=state.decorTool.color; if($('decorColor')) $('decorColor').value=state.decorTool.color; updateDecorToolUI();}); $('decorOutlineColor')?.addEventListener('input',e=>{state.decorTool.outlineColor=normalizeHex(e.target.value); if($('decorOutlineHex')) $('decorOutlineHex').value=state.decorTool.outlineColor; updateDecorToolUI();}); $('decorOutlineHex')?.addEventListener('change',e=>{state.decorTool.outlineColor=normalizeHexInput(e.target.value,state.decorTool.outlineColor||'#8FC8FF'); e.target.value=state.decorTool.outlineColor; if($('decorOutlineColor')) $('decorOutlineColor').value=state.decorTool.outlineColor; updateDecorToolUI();}); $('decorOutlineWidth')?.addEventListener('input',e=>{state.decorTool.outlineWidth=clamp(Number(e.target.value)||0,0,80); updateDecorToolUI();}); $('decorSize')?.addEventListener('input',e=>{state.decorTool.size=Math.max(1,Number(e.target.value)||14); updateDecorToolUI();}); $('decorStabilize')?.addEventListener('change',e=>{state.decorTool.stabilize=clamp(Number(e.target.value)||0.88,0,0.98); updateDecorToolUI();});
     $('zoomOutBtn').addEventListener('click',()=>zoomBy(1/1.2)); $('zoomInBtn').addEventListener('click',()=>zoomBy(1.2)); $('zoomValueBtn').addEventListener('click',zoomTo100);
     $('zoomSlider').addEventListener('input',e=>applyPreviewZoom(clamp((Number(e.target.value)||100)/100,.05,4),'manual'));
     viewport.addEventListener('wheel',e=>{ if(!(e.ctrlKey||e.metaKey))return; e.preventDefault(); zoomBy(e.deltaY<0?1.12:1/1.12,{x:e.clientX,y:e.clientY}); },{passive:false});
