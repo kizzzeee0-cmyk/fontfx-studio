@@ -756,8 +756,8 @@
     const a=(ch.angle||0)*Math.PI/180, ca=Math.cos(a), sa=Math.sin(a), sx=(ch.scale||1)*(ch.scaleX||1), sy=(ch.scale||1)*(ch.scaleY||1), kx=Math.tan((ch.skewX||0)*Math.PI/180), ky=Math.tan((ch.skewY||0)*Math.PI/180);
     return {a:sx*(ca-sa*ky), b:sx*(sa+ca*ky), c:sy*(ca*kx-sa), d:sy*(sa*kx+ca)};
   }
-  function renderObjectSurface(ch,quality=2){ return isImageObject(ch) ? renderImageSurface(ch,quality) : renderCharSurface(ch,quality); }
-  function renderObjectMask(ch,q=1.2){ return isImageObject(ch) ? renderImageSurface(ch,q) : renderGlyphSurface(ch,q); }
+  function renderObjectSurface(ch,quality=2){ return isImageObject(ch) ? renderImageSurface(ch,quality) : isStampObject(ch) ? renderStampSurface(ch,quality) : isDecorObject(ch) ? renderDecorSurface(ch,quality) : renderCharSurface(ch,quality); }
+  function renderObjectMask(ch,q=1.2){ return isImageObject(ch) ? renderImageSurface(ch,q) : isStampObject(ch) ? renderStampSurface(ch,q) : isDecorObject(ch) ? renderDecorSurface(ch,q) : renderGlyphSurface(ch,q); }
   function drawChar(targetCtx,ch,quality=2){
     if(ch.visible===false) return;
     const surf=renderObjectSurface(ch,quality);
@@ -1850,7 +1850,7 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.9.0',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),stampTool:deepClone(state.stampTool),decorTool:deepClone(state.decorTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
+  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.9.1',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),stampTool:deepClone(state.stampTool),decorTool:deepClone(state.decorTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:historyChars(),groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,stampTool:state.stampTool,decorTool:state.decorTool,groupEffectEdit:state.groupEffectEdit,eyedropper:{sample:state.eyedropper.sample}});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>50)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
