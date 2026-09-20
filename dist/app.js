@@ -491,11 +491,13 @@
     const r=size/2;
     g.beginPath();
     if(type==='heart'){
-      const top=cy-r*0.08;
-      g.moveTo(cx, cy+r*0.78);
-      g.bezierCurveTo(cx-r*1.08, cy+r*0.22, cx-r*1.02, cy-r*0.54, cx-r*0.22, top-r*0.25);
-      g.bezierCurveTo(cx-r*0.02, cy-r*0.5, cx+r*0.02, cy-r*0.5, cx+r*0.22, top-r*0.25);
-      g.bezierCurveTo(cx+r*1.02, cy-r*0.54, cx+r*1.08, cy+r*0.22, cx, cy+r*0.78);
+      const topY=cy-r*0.18;
+      const bottomY=cy+r*0.82;
+      g.moveTo(cx, bottomY);
+      g.bezierCurveTo(cx-r*1.02, cy+r*0.28, cx-r*1.02, cy-r*0.34, cx-r*0.46, topY);
+      g.bezierCurveTo(cx-r*0.18, cy-r*0.44, cx-r*0.02, cy-r*0.22, cx, cy-r*0.02);
+      g.bezierCurveTo(cx+r*0.02, cy-r*0.22, cx+r*0.18, cy-r*0.44, cx+r*0.46, topY);
+      g.bezierCurveTo(cx+r*1.02, cy-r*0.34, cx+r*1.02, cy+r*0.28, cx, bottomY);
       g.closePath();
     }else if(type==='star'){
       const spikes=5, outer=r, inner=r*0.48;
@@ -1978,7 +1980,7 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.10.1',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),stampTool:deepClone(state.stampTool),decorTool:deepClone(state.decorTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
+  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.10.2',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),stampTool:deepClone(state.stampTool),decorTool:deepClone(state.decorTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:historyChars(),groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,stampTool:state.stampTool,decorTool:state.decorTool,groupEffectEdit:state.groupEffectEdit,eyedropper:{sample:state.eyedropper.sample}});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>50)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
