@@ -63,7 +63,8 @@
     history: [],
     historyIndex: -1,
     suppressHistory: false,
-    performance: { draftUntil: 0, finalTimer: null, exporting: false }
+    performance: { draftUntil: 0, finalTimer: null, exporting: false },
+    fontUi: { managerLimit: 60 }
   };
 
   const surfaceCache = new Map();
@@ -145,7 +146,7 @@
       const rec=await getSavedFontRecord(family); if(!rec)return false;
       try{
         disposeFontResource(family);
-        if(rec.type==='local'&&rec.data){const data=rec.data instanceof ArrayBuffer?rec.data:await rec.data.arrayBuffer?.();const ff=new FontFace(family,data);await ff.load();document.fonts.add(ff);state.fontRegistry[family]={type:'local',fontFace:ff,loaded:true};Object.assign(meta,{type:'local',saved:true,lazy:false,fileName:rec.fileName||''});}
+        if(rec.type==='local'&&rec.data){const data=rec.data instanceof ArrayBuffer?rec.data:await rec.data.arrayBuffer?.();const ff=new FontFace(family,data);await ff.load();document.fonts.add(ff);state.fontRegistry[family]={type:'local',fontFace:ff,loaded:true};Object.assign(meta,{type:'local',saved:true,lazy:false,fileName:rec.fileName||'',fileSize:rec.fileSize||0,lastModified:rec.lastModified||0});}
         else if(rec.type==='url'&&rec.url){const ff=new FontFace(family,`url("${String(rec.url).replace(/"/g,'%22')}")`);await ff.load();document.fonts.add(ff);state.fontRegistry[family]={type:'url',fontFace:ff,loaded:true};Object.assign(meta,{type:'url',url:rec.url,saved:true,lazy:false});}
         else if(rec.type==='css'){
           if(rec.cssText){const style=injectCssText(rec.cssText,family);state.fontRegistry[family]={type:'css',style,loaded:true};Object.assign(meta,{type:'css',url:rec.url||'',cssText:rec.cssText,sourceMethod:rec.sourceMethod||'saved-css',saved:true,lazy:false});}
@@ -157,15 +158,39 @@
     })().finally(()=>lazyFontLoadPromises.delete(family));
     lazyFontLoadPromises.set(family,promise); return promise;
   }
-  async function restoreSavedFonts(){
-    const names=await getSavedFontNames(); if(!names.length){refreshFontSelects();return;}
+  async function mergeSavedFontNames(){
+    const names=(await getSavedFontNames()).slice().sort((a,b)=>String(a).localeCompare(String(b),'ko'));
     let added=0;
     for(const name of names){
       if(state.customFonts.some(f=>f.name===name)) continue;
       state.customFonts.push({name,type:'saved',saved:true,lazy:true,label:name}); added++;
     }
+    return {names,added};
+  }
+  async function updateFontStorageUsage(savedCount=null){
+    const el=$('fontStorageUsage'); if(!el)return;
+    try{
+      const names=savedCount===null?await getSavedFontNames():null;
+      const count=savedCount===null?names.length:savedCount;
+      if(navigator.storage?.estimate){
+        const est=await navigator.storage.estimate();
+        const mb=n=>Number.isFinite(n)?(n/1024/1024).toFixed(n>1024*1024*100?0:1):'?';
+        el.textContent=`브라우저에 저장된 폰트 ${count}개 · 이 사이트 저장공간 ${mb(est.usage||0)}MB / ${mb(est.quota||0)}MB`;
+      }else el.textContent=`브라우저에 저장된 폰트 ${count}개`;
+    }catch(_){ el.textContent='폰트 저장공간 정보를 확인하지 못했습니다.'; }
+  }
+  async function refreshSavedFontLibrary(){
+    const {names,added}=await mergeSavedFontNames();
     refreshFontSelects();
-    setFontLoadStatus(`✓ 저장된 폰트 ${names.length}개를 유지했습니다. 시작 속도를 위해 실제 폰트 데이터는 사용할 때만 불러옵니다.`,'ok');
+    await updateFontStorageUsage(names.length);
+    setFontLoadStatus(`✓ 브라우저 저장소에서 폰트 ${names.length}개를 확인했습니다.${added?` 새로 목록에 복원 ${added}개.`:''}`,'ok');
+  }
+  async function restoreSavedFonts(){
+    const {names}=await mergeSavedFontNames();
+    refreshFontSelects();
+    updateFontStorageUsage(names.length);
+    if(!names.length){setFontLoadStatus('저장된 사용자 폰트가 아직 없습니다.','info');return;}
+    setFontLoadStatus(`✓ 저장된 폰트 ${names.length}개를 모두 목록에 복원했습니다. 실제 폰트 데이터는 사용할 때만 불러와 시작 속도를 유지합니다.`,'ok');
   }
 
 
@@ -1304,16 +1329,68 @@
   function centerSelectedX(){ const b=selectionBounds(); if(!b)return; const dx=state.project.width/2-b.cx; b.chars.forEach(c=>{c.x+=dx}); render(); updateInspector(); pushHistory(); }
   function centerSelectedY(){ const b=selectionBounds(); if(!b)return; const dy=state.project.height/2-b.cy; b.chars.forEach(c=>{c.y+=dy}); render(); updateInspector(); pushHistory(); }
 
+  function importedFontList(){ return state.customFonts.filter(f=>!['system','builtin'].includes(f.type)); }
+  function fontMatchesQuery(f,q){ if(!q)return true; const hay=`${f.name||''} ${f.label||''} ${f.fileName||''}`.toLocaleLowerCase('ko'); return hay.includes(q.toLocaleLowerCase('ko')); }
+  function appendFontGroup(select,label,fonts,current){
+    if(!fonts.length)return;
+    const group=document.createElement('optgroup'); group.label=label;
+    const frag=document.createDocumentFragment();
+    for(const f of fonts){ const o=document.createElement('option'); o.value=f.name; o.textContent=(f.label||f.name)+(f.type==='builtin'?' · 기본 무료폰트':(f.type==='system'?'':' · 가져옴')); frag.appendChild(o); }
+    group.appendChild(frag); select.appendChild(group);
+  }
+  function fillFontSelect(select,query='',keepCurrent=true){
+    if(!select)return 0;
+    const current=select.value;
+    let fonts=state.customFonts.filter(f=>fontMatchesQuery(f,query));
+    if(keepCurrent&&current&&!fonts.some(f=>f.name===current)){ const cur=state.customFonts.find(f=>f.name===current); if(cur)fonts=[cur,...fonts]; }
+    select.innerHTML='';
+    appendFontGroup(select,'기본 / 시스템',fonts.filter(f=>['system','builtin'].includes(f.type)),current);
+    appendFontGroup(select,'가져온 폰트',fonts.filter(f=>!['system','builtin'].includes(f.type)),current);
+    if(current&&[...select.options].some(o=>o.value===current)) select.value=current;
+    return fonts.length;
+  }
+  function updateFontManagerSummary(){
+    const imported=importedFontList();
+    if($('importedFontSummary')) $('importedFontSummary').textContent=`가져온 폰트 관리 (${imported.length}개)`;
+    const q=String($('fontSearchInput')?.value||'').trim();
+    const visible=q?state.customFonts.filter(f=>fontMatchesQuery(f,q)).length:state.customFonts.length;
+    if($('fontSelectCount')) $('fontSelectCount').textContent=`전체 ${state.customFonts.length}개 · 가져온 폰트 ${imported.length}개${q?` · 검색 결과 ${visible}개`:''}`;
+  }
   function initFonts(){
     const base=['Malgun Gothic','Arial','Verdana','Georgia','Times New Roman','Courier New','sans-serif','serif'];
     const builtins=[{name:'Cafe24Surround',label:'카페24 써라운드'},{name:'YeogiOttaeJalnan',label:'여기어때 잘난체'},{name:'RixInuaridurine',label:'Rix이누아리두리네'},{name:'OneStoreMobilePop',label:'원스토어 모바일POP'}];
-    state.customFonts=[...base.map(x=>({name:x,type:'system'})),...builtins.map(x=>({...x,type:'builtin'}))];refreshFontSelects(); renderFontManager();
+    state.customFonts=[...base.map(x=>({name:x,type:'system'})),...builtins.map(x=>({...x,type:'builtin'}))];refreshFontSelects();
+  }
+  function refreshMainFontSelect(){
+    const main=$('fontSelect'); if(!main)return;
+    const current=main.value||'Malgun Gothic', q=String($('fontSearchInput')?.value||'').trim();
+    fillFontSelect(main,q,true);
+    if([...main.options].some(o=>o.value===current))main.value=current;
+    else if([...main.options].some(o=>o.value==='Malgun Gothic'))main.value='Malgun Gothic';
+    updateFontManagerSummary();
   }
   function refreshFontSelects(){
-    for(const el of [$('fontSelect'),$('charFontFamily')]){const current=el.value;el.innerHTML='';state.customFonts.forEach(f=>{const o=document.createElement('option');o.value=f.name;o.textContent=(f.label||f.name)+(f.type==='builtin'?' · 기본 무료폰트':(f.type==='system'?'':' · 가져옴'));el.appendChild(o)});if([...el.options].some(o=>o.value===current))el.value=current;}
-    if(!$('fontSelect').value)$('fontSelect').value='Malgun Gothic'; renderFontManager();
+    const inspector=$('charFontFamily'), inspectorCurrent=inspector?.value||'';
+    refreshMainFontSelect(); fillFontSelect(inspector,'',true);
+    if(inspector&&inspectorCurrent&&[...inspector.options].some(o=>o.value===inspectorCurrent))inspector.value=inspectorCurrent;
+    const details=$('importedFontManagerDetails');
+    if(details?.open) renderFontManager(); else if($('loadedFontList')) $('loadedFontList').innerHTML='';
   }
-  function renderFontManager(){ const box=$('loadedFontList'); if(!box) return; const list=state.customFonts.filter(f=>!['system','builtin'].includes(f.type)); box.innerHTML=''; if(!list.length){box.innerHTML='<div class="hint">삭제 가능한 가져온 폰트가 아직 없습니다. 기본 무료폰트는 위 폰트 목록에 항상 유지됩니다.</div>'; return;} list.forEach(f=>{ const row=document.createElement('div'); row.className='font-item'; const kind=f.type==='css'?'웹 CSS':f.type==='url'?'직접 URL':f.type==='saved'?'저장 폰트':f.type==='local'?'로컬 파일':'가져온 폰트'; const saved=f.saved===false?'':' · 자동 저장'; const lazy=f.lazy?' · 필요 시 로드':''; row.innerHTML=`<div class="font-meta"><strong>${escapeHtml(f.name)}</strong><span>${kind}${saved}${lazy}</span><div class="font-preview" style="font-family:'${String(f.name).replace(/'/g,"\'")}'">가나다 ABC 123</div></div><div class="font-actions"><button class="ghost small" data-font-use="${escapeHtml(f.name)}">선택</button><button class="danger small" data-font-del="${escapeHtml(f.name)}">삭제</button></div>`; row.querySelector('[data-font-use]').addEventListener('click',async()=>{$('fontSelect').value=f.name; await ensureFontReady(f.name,5000); const ac=activeChar(); if(ac && !isImageObject(ac)) applyCharMutation(ch=>ch.fontFamily=f.name);}); row.querySelector('[data-font-del]').addEventListener('click',()=>removeCustomFont(f.name)); box.appendChild(row); }); }
+  function renderFontManager(resetLimit=false){
+    const box=$('loadedFontList'), details=$('importedFontManagerDetails'); if(!box)return;
+    updateFontManagerSummary();
+    if(details&&!details.open){box.innerHTML='';return;}
+    if(resetLimit)state.fontUi.managerLimit=60;
+    const q=String($('fontManagerSearch')?.value||'').trim();
+    const list=importedFontList().filter(f=>fontMatchesQuery(f,q)).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ko'));
+    const limit=Math.max(20,state.fontUi.managerLimit||60), shown=list.slice(0,limit);
+    box.innerHTML='';
+    if(!list.length){box.innerHTML=`<div class="hint">${q?'검색 결과가 없습니다.':'삭제 가능한 가져온 폰트가 아직 없습니다. 기본 무료폰트는 위 폰트 목록에 항상 유지됩니다.'}</div>`;}
+    const frag=document.createDocumentFragment();
+    shown.forEach(f=>{ const row=document.createElement('div'); row.className='font-item'; const kind=f.type==='css'?'웹 CSS':f.type==='url'?'직접 URL':f.type==='saved'?'저장 폰트':f.type==='local'?'로컬 파일':'가져온 폰트'; const saved=f.saved===false?' · 이번 접속만':' · 자동 저장'; const lazy=f.lazy?' · 필요 시 로드':''; const preview=f.lazy?'<div class="font-preview font-preview-lazy">선택하면 폰트 미리보기를 불러옵니다.</div>':`<div class="font-preview" style="font-family:'${String(f.name).replace(/'/g,"\'")}'">가나다 ABC 123</div>`; row.innerHTML=`<div class="font-meta"><strong>${escapeHtml(f.name)}</strong><span>${kind}${saved}${lazy}</span>${preview}</div><div class="font-actions"><button class="ghost small" data-font-use="${escapeHtml(f.name)}">선택</button><button class="danger small" data-font-del="${escapeHtml(f.name)}">삭제</button></div>`; row.querySelector('[data-font-use]').addEventListener('click',async()=>{ const input=$('fontSearchInput'); if(input)input.value=''; refreshFontSelects(); $('fontSelect').value=f.name; const ok=await ensureFontReady(f.name,7000); const ac=activeChar(); if(ac && !isImageObject(ac)) applyCharMutation(ch=>ch.fontFamily=f.name); if(ok)renderFontManager(); }); row.querySelector('[data-font-del]').addEventListener('click',()=>removeCustomFont(f.name)); frag.appendChild(row); });
+    box.appendChild(frag);
+    const more=$('showMoreFontsBtn'); if(more){ const remaining=Math.max(0,list.length-shown.length); more.classList.toggle('hidden',remaining===0); more.textContent=remaining?`더 보기 · 남은 ${remaining}개`:'더 보기'; }
+  }
   function disposeFontResource(name){
     const reg=state.fontRegistry[name]; if(!reg)return;
     try{if(reg.fontFace)document.fonts.delete(reg.fontFace);}catch(_){}
@@ -1321,11 +1398,21 @@
     try{if(reg.style)reg.style.remove();}catch(_){}
     delete state.fontRegistry[name];
   }
-  function registerFont(name,type,meta={}){
-    const clean=cleanFamilyName(name); if(!clean)return;
+  function registerFont(name,type,meta={},options={}){
+    const clean=cleanFamilyName(name); if(!clean)return '';
     const existing=state.customFonts.find(f=>f.name===clean);
     if(existing) Object.assign(existing,{name:clean,type,...meta}); else state.customFonts.push({name:clean,type,...meta});
-    refreshFontSelects(); $('fontSelect').value=clean;
+    if(options.refresh!==false)refreshFontSelects(); if(options.select!==false&&$('fontSelect'))$('fontSelect').value=clean;
+    return clean;
+  }
+  function uniqueLocalFontName(base,file){
+    const clean=cleanFamilyName(base)||'가져온 폰트';
+    const same=state.customFonts.find(f=>f.name===clean);
+    if(!same)return clean;
+    if(same.fileName===file.name && Number(same.fileSize||0)===Number(file.size||0) && Number(same.lastModified||0)===Number(file.lastModified||0))return clean;
+    let n=2, candidate=`${clean} (${n})`;
+    while(state.customFonts.some(f=>f.name===candidate)){n++;candidate=`${clean} (${n})`;}
+    return candidate;
   }
   async function addCssFont(){
     clearFontLoadStatus();
@@ -1405,22 +1492,40 @@
       toast('URL 폰트를 불러오지 못했습니다.'); console.error('[FontFX font url]',e);
     }
   }
-  async function addLocalFont(file){
-    if(!file)return; clearFontLoadStatus();
-    const name=cleanFamilyName(file.name.replace(/\.(ttf|otf|woff2?)$/i,''));
-    setFontLoadStatus('로컬 폰트 파일을 읽는 중…','info');
+  async function addLocalFont(file,options={}){
+    if(!file)return null; if(!options.batch)clearFontLoadStatus();
+    const base=cleanFamilyName(file.name.replace(/\.(ttf|otf|woff2?)$/i,''));
+    const name=uniqueLocalFontName(base,file);
+    if(!options.batch)setFontLoadStatus('로컬 폰트 파일을 읽는 중…','info');
     try{
       disposeFontResource(name); const buf=await file.arrayBuffer(); const ff=new FontFace(name,buf); await ff.load(); document.fonts.add(ff);
-      state.fontRegistry[name]={type:'local',fontFace:ff}; registerFont(name,'local',{saved:false,fileName:file.name});
-      const persisted=await saveFontRecord({name,type:'local',fileName:file.name,data:buf.slice(0),savedAt:Date.now()}); const savedMeta=state.customFonts.find(f=>f.name===name);if(savedMeta)savedMeta.saved=persisted;refreshFontSelects(); await ensureFontReady(name,5000);
-      setFontLoadStatus(`✓ 로컬 폰트 “${name}” 로드 완료.`,'ok'); toast(`로컬 폰트 “${name}”을 불러왔습니다.`);
-    }catch(e){setFontLoadStatus('이 폰트 파일을 브라우저에서 읽지 못했습니다. 손상 여부 또는 폰트 형식을 확인하세요.','error');toast('이 폰트 파일을 브라우저에서 읽지 못했습니다.');}
+      state.fontRegistry[name]={type:'local',fontFace:ff,loaded:true}; registerFont(name,'local',{saved:false,fileName:file.name,fileSize:file.size||0,lastModified:file.lastModified||0},{refresh:!options.deferUi,select:!options.deferUi});
+      const persisted=await saveFontRecord({name,type:'local',fileName:file.name,fileSize:file.size||0,lastModified:file.lastModified||0,data:buf.slice(0),savedAt:Date.now()});
+      const savedMeta=state.customFonts.find(f=>f.name===name);if(savedMeta)savedMeta.saved=persisted;
+      await ensureFontReady(name,5000);
+      if(!options.deferUi){refreshFontSelects(); updateFontStorageUsage(); setFontLoadStatus(persisted?`✓ 로컬 폰트 “${name}” 로드 및 자동 저장 완료.`:`⚠ “${name}”은 불러왔지만 브라우저 저장공간에 저장하지 못했습니다. 저장공간 용량을 확인하세요.`,persisted?'ok':'warn'); toast(persisted?`로컬 폰트 “${name}”을 불러왔습니다.`:`“${name}”은 이번 접속에서만 사용할 수 있습니다.`);}
+      return {name,persisted};
+    }catch(e){if(!options.batch){setFontLoadStatus('이 폰트 파일을 브라우저에서 읽지 못했습니다. 손상 여부 또는 폰트 형식을 확인하세요.','error');toast('이 폰트 파일을 브라우저에서 읽지 못했습니다.');} return null;}
   }
-  function removeCustomFont(name){
-    const font=state.customFonts.find(f=>f.name===name); if(!font||font.type==='system') return;
-    disposeFontResource(name); state.customFonts=state.customFonts.filter(f=>f.name!==name); deleteFontRecord(name);
+  async function addLocalFonts(fileList){
+    const files=[...(fileList||[])].filter(Boolean); if(!files.length)return;
+    clearFontLoadStatus(); state.fontUi.managerLimit=Math.max(state.fontUi.managerLimit||60,60);
+    try{ await navigator.storage?.persist?.(); }catch(_){}
+    setFontLoadStatus(`로컬 폰트 ${files.length}개를 순서대로 불러오는 중…`,'info');
+    let loaded=0,saved=0,lastName='';
+    for(let i=0;i<files.length;i++){
+      setFontLoadStatus(`로컬 폰트 불러오는 중… ${i+1}/${files.length} · ${files[i].name}`,'info');
+      const r=await addLocalFont(files[i],{batch:true,deferUi:true}); if(r){loaded++;saved+=r.persisted?1:0;lastName=r.name;}
+    }
+    refreshFontSelects(); if(lastName&&$('fontSelect'))$('fontSelect').value=lastName; updateFontStorageUsage();
+    setFontLoadStatus(`✓ ${loaded}/${files.length}개 폰트 로드 완료 · 브라우저 자동 저장 ${saved}개${saved<loaded?' · 저장 실패 항목은 이번 접속에서만 유지됩니다.':''}`,saved===loaded?'ok':'warn');
+    toast(`${loaded}개 폰트를 불러왔습니다.`);
+  }
+  async function removeCustomFont(name){
+    const font=state.customFonts.find(f=>f.name===name); if(!font||['system','builtin'].includes(font.type)) return;
+    disposeFontResource(name); state.customFonts=state.customFonts.filter(f=>f.name!==name); await deleteFontRecord(name);
     state.chars.forEach(ch=>{if(ch.fontFamily===name){ch.fontFamily='Malgun Gothic';markDirty(ch);}});
-    clearRuntimeCaches();refreshFontSelects();updateAll();pushHistory();toast(`폰트 “${name}”을 삭제했습니다. 자동 저장된 사본도 함께 삭제했습니다.`);
+    clearRuntimeCaches();refreshFontSelects();updateAll();pushHistory();updateFontStorageUsage();toast(`폰트 “${name}”을 삭제했습니다. 자동 저장된 사본도 함께 삭제했습니다.`);
   }
 
   function renderHarmony(colors){const box=$('harmonySwatches');box.innerHTML='';colors.forEach(c=>{const b=document.createElement('button');b.className='swatch';b.style.background=c;b.title=c;b.addEventListener('click',()=>applyColorToActive(c));box.appendChild(b);});}
@@ -1431,7 +1536,7 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.7.2',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper)};}
+  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.7.3',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:historyChars(),groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,groupEffectEdit:state.groupEffectEdit,eyedropper:{sample:state.eyedropper.sample}});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>50)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
@@ -1587,7 +1692,13 @@
 
   function bindEvents(){
     $('applyCanvasSize').addEventListener('click',applyCanvasSize);document.querySelectorAll('.canvas-preset').forEach(b=>b.addEventListener('click',()=>{$('canvasWidth').value=b.dataset.w;$('canvasHeight').value=b.dataset.h;applyCanvasSize();}));
-    $('createTextBtn').addEventListener('click',createText);$('imageImportInput').addEventListener('change',async e=>{ await importImages(e.target.files); e.target.value=''; });$('addCssFontBtn').addEventListener('click',addCssFont);$('addUrlFontBtn').addEventListener('click',addUrlFont);$('localFontInput').addEventListener('change',e=>addLocalFont(e.target.files[0]));
+    $('createTextBtn').addEventListener('click',createText);$('imageImportInput').addEventListener('change',async e=>{ await importImages(e.target.files); e.target.value=''; });$('addCssFontBtn').addEventListener('click',addCssFont);$('addUrlFontBtn').addEventListener('click',addUrlFont);$('localFontInput').addEventListener('change',async e=>{await addLocalFonts(e.target.files);e.target.value='';});
+    $('fontSearchInput').addEventListener('input',()=>refreshMainFontSelect());
+    $('clearFontSearchBtn').addEventListener('click',()=>{ $('fontSearchInput').value=''; refreshMainFontSelect(); $('fontSearchInput').focus(); });
+    $('importedFontManagerDetails').addEventListener('toggle',()=>{ if($('importedFontManagerDetails').open){ state.fontUi.managerLimit=60; renderFontManager(true); updateFontStorageUsage(); } else $('loadedFontList').innerHTML=''; });
+    $('fontManagerSearch').addEventListener('input',()=>renderFontManager(true));
+    $('showMoreFontsBtn').addEventListener('click',()=>{ state.fontUi.managerLimit=(state.fontUi.managerLimit||60)+60; renderFontManager(); });
+    $('refreshSavedFontListBtn').addEventListener('click',()=>refreshSavedFontLibrary());
     $('fontSelect').addEventListener('change',async()=>{const name=$('fontSelect').value; await ensureFontReady(name,7000); if(state.selectedIds.size){ [...state.selectedIds].map(charById).filter(ch=>ch && !isImageObject(ch)).forEach(ch=>{ch.fontFamily=name; markDirty(ch);}); clearRuntimeCaches(); updateAll(); pushHistory(); }});$('makeHarmonyBtn').addEventListener('click',()=>{const h=normalizeHex($('harmonyBaseHex').value,$('harmonyBaseColor').value);$('harmonyBaseHex').value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);});$('harmonyBaseColor').addEventListener('input',e=>{$('harmonyBaseHex').value=normalizeHex(e.target.value);renderHarmony(makeHarmony(e.target.value));setEyedropperSample(e.target.value);});$('harmonyBaseHex').addEventListener('change',e=>{const h=normalizeHex(e.target.value);e.target.value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);}); $('applyDirectHexBtn').addEventListener('click',applyDirectHex); $('copyDirectHexBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('directHexInput').value,state.eyedropper.sample||'#9389DE'); $('directHexInput').value=hex; navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('directHexInput').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('eyedropperHex').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('applyEyedropperBtn').addEventListener('click',()=>applyColorToActive($('eyedropperHex').value)); $('copyEyedropperBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('eyedropperHex').value,state.eyedropper.sample||'#9389DE'); navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('eyedropperImageInput').addEventListener('change',async e=>{ try{ await loadEyedropperImage(e.target.files?.[0]); toast('예시 사진을 불러왔습니다.'); }catch(err){ console.error(err); toast('예시 사진을 불러오지 못했습니다.'); drawEyedropperPlaceholder(); } e.target.value=''; }); $('clearEyedropperImageBtn').addEventListener('click',()=>{ drawEyedropperPlaceholder(); toast('예시 사진을 지웠습니다.'); }); const eyeCanvas=$('eyedropperCanvas'); let eyeDown=false; eyeCanvas.addEventListener('pointerdown',e=>{ eyeDown=true; sampleEyedropperAtEvent(e); }); window.addEventListener('pointerup',()=>{ eyeDown=false; }); eyeCanvas.addEventListener('pointermove',e=>{ if(eyeDown) sampleEyedropperAtEvent(e); }); eyeCanvas.addEventListener('click',sampleEyedropperAtEvent);
     $('addGradientStopBtn').addEventListener('click',addGradientStop);document.querySelectorAll('.gradient-preset').forEach(b=>b.addEventListener('click',()=>applyGradientPreset(b.dataset.preset)));
     $('addStrokeBtn').addEventListener('click',addStroke);$('addInnerShadowBtn').addEventListener('click',addInnerShadow);$('addOuterShadowBtn').addEventListener('click',addOuterShadow);$('makeGroupBtn').addEventListener('click',makeGroup);$('ungroupBtn').addEventListener('click',ungroup);$('toggleGroupLinkBtn').addEventListener('click',toggleGroupLink);$('groupEffectToggle').addEventListener('change',e=>{state.groupEffectEdit=e.target.checked;updateInspector();pushHistory();});if($('groupMoveToggle')) $('groupMoveToggle').addEventListener('change',e=>state.groupMove=e.target.checked);$('copyStyleBtn').addEventListener('click',copyStyle);$('pasteStyleBtn').addEventListener('click',pasteStyle);

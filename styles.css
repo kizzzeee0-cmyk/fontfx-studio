@@ -45,3 +45,15 @@ details{border-top:1px dashed var(--line);margin-top:10px;padding-top:8px}summar
 #eyedropperCanvas{display:block;width:100%;max-width:100%;background:linear-gradient(135deg,#faf9ff,#f0ecff);border-radius:10px;cursor:crosshair}
 .eyedropper-preview-group{display:flex;align-items:center;gap:10px}
 .eyedropper-preview{display:inline-block;width:38px;height:38px;border-radius:10px;border:1px solid var(--border);background:#9389DE;box-shadow:inset 0 0 0 1px rgba(255,255,255,.5)}
+
+.font-count-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px}
+.font-manager-details{margin-top:8px;border:1px solid var(--line);border-radius:10px;background:#fbfbfe;overflow:hidden}
+.font-manager-details>summary{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 11px;cursor:pointer;font-size:12px;font-weight:800;list-style:none}
+.font-manager-details>summary::-webkit-details-marker{display:none}
+.font-manager-details[open]>summary{border-bottom:1px solid var(--line);background:#f7f5ff}
+.font-manager-tools{display:grid;grid-template-columns:1fr auto;gap:7px;padding:10px 10px 0}
+.font-manager-details #fontStorageUsage{padding:7px 10px 0}
+.font-list-scroll{max-height:390px;overflow:auto;padding:0 10px 8px}
+.font-preview-lazy{font-family:inherit!important;font-size:10px;color:var(--muted);font-style:italic}
+.font-manager-details>#showMoreFontsBtn{width:calc(100% - 20px);margin:0 10px 10px}
+.font-manager-details>p.hint{padding:0 10px 10px;margin-top:0}

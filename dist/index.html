@@ -4,16 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="light" />
-  <title>FontFX Studio 1.7.2 Web</title>
+  <title>FontFX Studio 1.7.3 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.7.2" />
+  <link rel="stylesheet" href="styles.css?v=1.7.3" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark">F</div>
-      <div><strong>FontFX Studio</strong><span>v1.7.1 Web · Performance Optimization / Lazy Font Restore</span></div>
+      <div><strong>FontFX Studio</strong><span>v1.7.3 Web · Large Font Library / Collapsible Manager</span></div>
     </div>
     <div class="top-actions">
       <button id="undoBtn" class="ghost" title="Ctrl+Z">↶ 실행취소</button>
@@ -43,8 +43,10 @@
 
       <section class="card">
         <h2>2. 폰트 가져오기</h2>
+        <label>폰트 빠른 검색<input id="fontSearchInput" type="search" placeholder="폰트 이름 검색 · 비워두면 전체 표시"></label>
         <label>사용 폰트<select id="fontSelect"></select></label>
-        <p class="hint">기본 무료폰트로 카페24 써라운드, 여기어때 잘난체, Rix이누아리두리네, 원스토어 모바일POP을 추가했습니다. 이전에 직접 불러온 폰트는 자동 저장본을 그대로 유지합니다.</p>
+        <div class="font-count-row"><span id="fontSelectCount" class="hint">폰트 목록 준비 중…</span><button id="clearFontSearchBtn" class="ghost small">검색 초기화</button></div>
+        <p class="hint">가져온 폰트 수에 제한을 두지 않고 저장된 폰트 이름 전체를 복원합니다. 폰트가 많으면 검색창으로 빠르게 찾을 수 있습니다. 기존에 직접 불러온 폰트와 프리셋은 그대로 유지됩니다.</p>
         <details open>
           <summary>Google Fonts / 웹 CSS</summary>
           <label>CSS 주소 또는 코드
@@ -67,13 +69,21 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
         </details>
         <details>
           <summary>내 컴퓨터 폰트 파일</summary>
-          <label class="button secondary full">TTF/OTF/WOFF 파일 선택<input id="localFontInput" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" hidden></label>
-          <p class="hint">로컬 폰트는 브라우저 메모리에서만 사용되며 외부로 업로드되지 않습니다.</p>
+          <label class="button secondary full">TTF/OTF/WOFF 파일 선택<input id="localFontInput" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" multiple hidden></label>
+          <p class="hint">여러 폰트를 한 번에 선택할 수 있습니다. 폰트 파일은 외부 서버에 업로드하지 않고 현재 사이트의 브라우저 저장공간에 보관합니다.</p>
         </details>
         <div class="divider"></div>
-        <div class="card-title-row"><h3>가져온 폰트 관리</h3><span class="hint-inline-badge">자동 저장</span></div>
-        <div id="loadedFontList" class="font-list"></div>
-        <p class="hint">가져온 웹 CSS / URL / 로컬 폰트 파일은 이 브라우저에 자동 저장되어 다음 접속 때 복원됩니다. 삭제 버튼을 누르면 저장본도 같이 삭제됩니다.</p>
+        <details id="importedFontManagerDetails" class="font-manager-details">
+          <summary><span id="importedFontSummary">가져온 폰트 관리</span><span class="hint-inline-badge">접기/펼치기</span></summary>
+          <div class="font-manager-tools">
+            <input id="fontManagerSearch" type="search" placeholder="가져온 폰트 안에서 검색">
+            <button id="refreshSavedFontListBtn" class="ghost small">저장 목록 다시 읽기</button>
+          </div>
+          <div id="fontStorageUsage" class="hint">저장공간 확인 중…</div>
+          <div id="loadedFontList" class="font-list font-list-scroll"></div>
+          <button id="showMoreFontsBtn" class="ghost full hidden">더 보기</button>
+          <p class="hint">목록은 성능을 위해 접힌 상태에서는 렌더링하지 않습니다. 펼친 뒤 검색하거나 ‘더 보기’를 눌러 모든 폰트를 확인할 수 있습니다. 삭제 버튼을 눌렀을 때만 저장본이 삭제됩니다.</p>
+        </details>
       </section>
 
       <section class="card">
@@ -347,6 +357,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.7.2"></script>
+  <script src="app.js?v=1.7.3"></script>
 </body>
 </html>
