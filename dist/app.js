@@ -64,7 +64,8 @@
     historyIndex: -1,
     suppressHistory: false,
     performance: { draftUntil: 0, finalTimer: null, exporting: false },
-    fontUi: { managerLimit: 60 }
+    fontUi: { managerLimit: 60 },
+    fontTransformPolicies: {}
   };
 
   const surfaceCache = new Map();
@@ -74,6 +75,7 @@
   const lazyFontLoadPromises = new Map();
   const EFFECT_PRESET_STORAGE_KEY = 'fontfx.effectPresets.v1';
   const PAINT_PRESET_STORAGE_KEY = 'fontfx.paintPresets.v1';
+  const FONT_TRANSFORM_POLICY_STORAGE_KEY = 'fontfx.fontTransformPolicies.v1';
   const FONT_DB_NAME = 'fontfx.savedFonts.v1';
   const FONT_DB_STORE = 'fonts';
   let toastTimer = null;
@@ -114,6 +116,83 @@
   function isDraftPreview(){ return !state.performance.exporting && performance.now()<(state.performance.draftUntil||0); }
   function cacheMapSet(map,key,value,max=120){ map.set(key,value); if(map.size>max){ const first=map.keys().next().value; map.delete(first); } return value; }
   function normalizeHexInput(v,fallback='#000000'){ const hex=String(v||'').trim(); return /^#?[0-9a-fA-F]{6}$/.test(hex) ? ('#'+hex.replace('#','')).toUpperCase() : fallback; }
+  function loadFontTransformPolicies(){
+    try{ const raw=JSON.parse(localStorage.getItem(FONT_TRANSFORM_POLICY_STORAGE_KEY)||'{}'); state.fontTransformPolicies=raw&&typeof raw==='object'?raw:{}; }
+    catch(_){ state.fontTransformPolicies={}; }
+  }
+  function persistFontTransformPolicies(){
+    try{ localStorage.setItem(FONT_TRANSFORM_POLICY_STORAGE_KEY,JSON.stringify(state.fontTransformPolicies||{})); }
+    catch(_){ toast('폰트 변형 권한 설정을 저장하지 못했습니다.'); }
+  }
+  function fontMetaByName(name){ return state.customFonts.find(f=>f.name===name)||null; }
+  function defaultFontTransformPolicy(name){
+    const meta=fontMetaByName(name);
+    const source=String(meta?.url||meta?.sourceUrl||meta?.cssText||'').toLowerCase();
+    if(source.includes('fonts.googleapis.com')||source.includes('fonts.gstatic.com')) return 'allowed';
+    return 'unknown';
+  }
+  function getFontTransformPolicy(name){
+    if(!name) return 'unknown';
+    const saved=state.fontTransformPolicies?.[name];
+    return ['allowed','prohibited','unknown'].includes(saved)?saved:defaultFontTransformPolicy(name);
+  }
+  function setFontTransformPolicy(name,policy,{quiet=false}={}){
+    if(!name||!['allowed','prohibited','unknown'].includes(policy)) return;
+    state.fontTransformPolicies[name]=policy; persistFontTransformPolicies();
+    updateFontTransformUI();
+    const details=$('importedFontManagerDetails'); if(details?.open) renderFontManager();
+    if(!quiet) toast(policy==='prohibited'?`“${name}” 폰트를 변형 금지로 설정했습니다.`:policy==='allowed'?`“${name}” 폰트를 변형 허용으로 설정했습니다.`:`“${name}” 폰트의 변형 권한을 확인 필요로 설정했습니다.`);
+  }
+  function textTransformTargets(){
+    const scope=$('fontTransformScope')?.value||'all';
+    if(scope==='selected') return [...state.selectedIds].map(charById).filter(ch=>ch&&!isImageObject(ch));
+    return state.chars.filter(ch=>ch&&!isImageObject(ch));
+  }
+  function transformPolicyCheck(targets){
+    const names=[...new Set((targets||[]).map(ch=>ch.fontFamily).filter(Boolean))];
+    for(const name of names){
+      const policy=getFontTransformPolicy(name);
+      if(policy==='prohibited'){ toast('해당 폰트는 수정이 불가능합니다'); return false; }
+      if(policy==='unknown'){ toast(`“${name}” 폰트의 변형 허용 여부를 확인할 수 없습니다. 폰트 변형 권한을 먼저 설정해주세요.`); return false; }
+    }
+    return true;
+  }
+  function updateFontTransformUI(){
+    const active=activeChar();
+    const textActive=active&&!isImageObject(active)?active:state.chars.find(ch=>!isImageObject(ch));
+    const currentFont=textActive?.fontFamily||$('fontSelect')?.value||'';
+    const policy=getFontTransformPolicy(currentFont);
+    const ps=$('fontTransformPolicy'); if(ps) ps.value=policy;
+    const hint=$('fontTransformPolicyHint');
+    if(hint){
+      hint.className='font-status '+(policy==='allowed'?'ok':policy==='prohibited'?'error':'info');
+      hint.textContent=policy==='allowed'?`현재 폰트 “${currentFont||'-'}” · 변형 허용`:policy==='prohibited'?`현재 폰트 “${currentFont||'-'}” · 변형 금지 — 해당 폰트는 수정이 불가능합니다`:`현재 폰트 “${currentFont||'-'}” · 변형 허용 여부 확인 필요`;
+    }
+    if(textActive){
+      if($('fontTransformItalic')) $('fontTransformItalic').value=(Number(textActive.skewX)||0).toFixed(1);
+      if($('fontTransformWidth')) $('fontTransformWidth').value=Math.round((Number(textActive.scaleX)||1)*100);
+      if($('fontTransformHeight')) $('fontTransformHeight').value=Math.round((Number(textActive.scaleY)||1)*100);
+    }
+  }
+  function applyFontTransform(){
+    const targets=textTransformTargets(); if(!targets.length){toast('변형할 텍스트 글자를 선택하거나 만들어주세요.');return;}
+    if(!transformPolicyCheck(targets)) return;
+    const italic=clamp(Number($('fontTransformItalic')?.value)||0,-60,60);
+    const width=clamp(Number($('fontTransformWidth')?.value)||100,20,400)/100;
+    const height=clamp(Number($('fontTransformHeight')?.value)||100,20,400)/100;
+    targets.forEach(ch=>{ ch.skewX=italic; ch.scaleX=width; ch.scaleY=height; markDirty(ch); });
+    clearRuntimeCaches(); updateAll(); pushHistory(); toast(`${targets.length}개 텍스트 글자에 기울기/가로/세로 변형을 적용했습니다.`);
+  }
+  function resetFontTransform(){
+    const targets=textTransformTargets(); if(!targets.length){toast('초기화할 텍스트 글자가 없습니다.');return;}
+    targets.forEach(ch=>{ ch.skewX=0; ch.scaleX=1; ch.scaleY=1; markDirty(ch); });
+    clearRuntimeCaches(); updateAll(); pushHistory(); toast(`${targets.length}개 텍스트 글자의 변형을 초기화했습니다.`);
+  }
+  function applyGuardedObjectTransform(field,value){
+    const c=activeChar(); if(!c)return;
+    if(!isImageObject(c) && !transformPolicyCheck([c])){ updateInspectorTransformOnly(); return; }
+    c[field]=value; clearGroupRuntimeCache(); renderScheduled(); updateLayers(); scheduleHistory(); updateFontTransformUI();
+  }
   function renderScheduled(){ if(renderScheduled._raf) return; renderScheduled._raf=requestAnimationFrame(()=>{ renderScheduled._raf=0; render(); }); }
 
   function openFontDb(){
@@ -1359,7 +1438,7 @@
   function initFonts(){
     const base=['Malgun Gothic','Arial','Verdana','Georgia','Times New Roman','Courier New','sans-serif','serif'];
     const builtins=[{name:'Cafe24Surround',label:'카페24 써라운드'},{name:'YeogiOttaeJalnan',label:'여기어때 잘난체'},{name:'RixInuaridurine',label:'Rix이누아리두리네'},{name:'OneStoreMobilePop',label:'원스토어 모바일POP'}];
-    state.customFonts=[...base.map(x=>({name:x,type:'system'})),...builtins.map(x=>({...x,type:'builtin'}))];refreshFontSelects();
+    state.customFonts=[...base.map(x=>({name:x,type:'system'})),...builtins.map(x=>({...x,type:'builtin'}))];refreshFontSelects(); updateFontTransformUI();
   }
   function refreshMainFontSelect(){
     const main=$('fontSelect'); if(!main)return;
@@ -1387,7 +1466,7 @@
     box.innerHTML='';
     if(!list.length){box.innerHTML=`<div class="hint">${q?'검색 결과가 없습니다.':'삭제 가능한 가져온 폰트가 아직 없습니다. 기본 무료폰트는 위 폰트 목록에 항상 유지됩니다.'}</div>`;}
     const frag=document.createDocumentFragment();
-    shown.forEach(f=>{ const row=document.createElement('div'); row.className='font-item'; const kind=f.type==='css'?'웹 CSS':f.type==='url'?'직접 URL':f.type==='saved'?'저장 폰트':f.type==='local'?'로컬 파일':'가져온 폰트'; const saved=f.saved===false?' · 이번 접속만':' · 자동 저장'; const lazy=f.lazy?' · 필요 시 로드':''; const preview=f.lazy?'<div class="font-preview font-preview-lazy">선택하면 폰트 미리보기를 불러옵니다.</div>':`<div class="font-preview" style="font-family:'${String(f.name).replace(/'/g,"\'")}'">가나다 ABC 123</div>`; row.innerHTML=`<div class="font-meta"><strong>${escapeHtml(f.name)}</strong><span>${kind}${saved}${lazy}</span>${preview}</div><div class="font-actions"><button class="ghost small" data-font-use="${escapeHtml(f.name)}">선택</button><button class="danger small" data-font-del="${escapeHtml(f.name)}">삭제</button></div>`; row.querySelector('[data-font-use]').addEventListener('click',async()=>{ const input=$('fontSearchInput'); if(input)input.value=''; refreshFontSelects(); $('fontSelect').value=f.name; const ok=await ensureFontReady(f.name,7000); await applyFontToAllTextLayers(f.name); if(ok)renderFontManager(); }); row.querySelector('[data-font-del]').addEventListener('click',()=>removeCustomFont(f.name)); frag.appendChild(row); });
+    shown.forEach(f=>{ const row=document.createElement('div'); row.className='font-item'; const kind=f.type==='css'?'웹 CSS':f.type==='url'?'직접 URL':f.type==='saved'?'저장 폰트':f.type==='local'?'로컬 파일':'가져온 폰트'; const saved=f.saved===false?' · 이번 접속만':' · 자동 저장'; const lazy=f.lazy?' · 필요 시 로드':''; const preview=f.lazy?'<div class="font-preview font-preview-lazy">선택하면 폰트 미리보기를 불러옵니다.</div>':`<div class="font-preview" style="font-family:'${String(f.name).replace(/'/g,"\'")}'">가나다 ABC 123</div>`; const policy=getFontTransformPolicy(f.name); row.innerHTML=`<div class="font-meta"><strong>${escapeHtml(f.name)}</strong><span>${kind}${saved}${lazy}</span>${preview}<label class="font-policy-line">변형 권한 <select data-font-policy="${escapeHtml(f.name)}"><option value="unknown"${policy==='unknown'?' selected':''}>확인 필요</option><option value="allowed"${policy==='allowed'?' selected':''}>허용</option><option value="prohibited"${policy==='prohibited'?' selected':''}>금지</option></select></label></div><div class="font-actions"><button class="ghost small" data-font-use="${escapeHtml(f.name)}">선택</button><button class="danger small" data-font-del="${escapeHtml(f.name)}">삭제</button></div>`; row.querySelector('[data-font-use]').addEventListener('click',async()=>{ const input=$('fontSearchInput'); if(input)input.value=''; refreshFontSelects(); $('fontSelect').value=f.name; const ok=await ensureFontReady(f.name,7000); await applyFontToAllTextLayers(f.name); updateFontTransformUI(); if(ok)renderFontManager(); }); row.querySelector('[data-font-policy]').addEventListener('change',e=>setFontTransformPolicy(f.name,e.target.value)); row.querySelector('[data-font-del]').addEventListener('click',()=>removeCustomFont(f.name)); frag.appendChild(row); });
     box.appendChild(frag);
     const more=$('showMoreFontsBtn'); if(more){ const remaining=Math.max(0,list.length-shown.length); more.classList.toggle('hidden',remaining===0); more.textContent=remaining?`더 보기 · 남은 ${remaining}개`:'더 보기'; }
   }
@@ -1547,7 +1626,7 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.7.5',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper)};}
+  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.8.0',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:historyChars(),groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,groupEffectEdit:state.groupEffectEdit,eyedropper:{sample:state.eyedropper.sample}});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>50)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
@@ -1563,7 +1642,7 @@
     try{
       const d=JSON.parse(await file.text());if(!d.project||!Array.isArray(d.chars))throw new Error('format');
       state.project=d.project;state.chars=d.chars;rememberImageAssets(state.chars);state.groups=(d.groups||[]).map(g=>ensureGroupDefaults(g));state.drawings=d.drawings||[];state.paintStrokes=d.paintStrokes||[]; state.activePaintId=d.activePaintId||state.paintStrokes[state.paintStrokes.length-1]?.id||null; state.drawTool=Object.assign({ enabled:false,color:'#FF5AA5',size:18,aboveText:true,stabilize:0.88,brushType:'pen',assistMode:'freehand' }, d.drawTool||{}); state.paintTool=Object.assign({ enabled:false,color:'#7C5CFF',color2:'#FFFFFF',fillMode:'solid',gradientAngle:90,size:18,mode:'paint',assistMode:'freehand',blend:'normal',stabilize:0.88 }, d.paintTool||{}); state.groupEffectEdit=d.groupEffectEdit!==false; state.eyedropper=Object.assign({ sample:'#9389DE', imageDataUrl:null, imageWidth:0, imageHeight:0 }, d.eyedropper||{});
-      if(d.effectPresets)mergeEffectPresets(d.effectPresets); if(d.paintPresets){ state.paintPresets=normalizePaintPresetLibrary(d.paintPresets); persistPaintPresets(); }
+      if(d.effectPresets)mergeEffectPresets(d.effectPresets); if(d.fontTransformPolicies&&typeof d.fontTransformPolicies==='object'){ state.fontTransformPolicies={...state.fontTransformPolicies,...d.fontTransformPolicies}; persistFontTransformPolicies(); } if(d.paintPresets){ state.paintPresets=normalizePaintPresetLibrary(d.paintPresets); persistPaintPresets(); }
       for(const f of (d.customFonts||[])){
         if(!f||!f.name)continue;
         if(!state.customFonts.some(x=>x.name===f.name))state.customFonts.push({...f,projectLazy:true});
@@ -1678,7 +1757,7 @@
   function copyStyle(){ const c=activeChar(); if(!c || isImageObject(c)){toast('스타일을 복사할 텍스트 글자를 선택하세요.'); return;} state.styleClipboard=charStyleSnapshot(c); toast('스타일을 복사했습니다.'); }
   function pasteStyle(){ if(!state.styleClipboard){toast('복사된 스타일이 없습니다.'); return;} const targets=(state.selectedIds.size?[...state.selectedIds].map(charById).filter(Boolean):[activeChar()].filter(Boolean)).filter(ch=>!isImageObject(ch)); if(!targets.length){toast('스타일을 붙여넣을 텍스트 글자를 선택하세요.'); return;} targets.forEach(ch=>applyStyleSnapshot(ch,state.styleClipboard)); groupEffectCache.clear(); updateAll(); pushHistory(); toast(`${targets.length}개 글자에 스타일을 붙여넣었습니다.`); }
 
-  function updateAll(){updateInspector();updateLayers();updateDrawToolUI();updatePaintToolUI();renderPaintPresetControls();renderPaintLayerList();render();updateHistoryButtons();}
+  function updateAll(){updateInspector();updateLayers();updateDrawToolUI();updatePaintToolUI();renderPaintPresetControls();renderPaintLayerList();updateFontTransformUI();render();updateHistoryButtons();}
 
   function bindInspector(){
     $('charText').addEventListener('input',e=>applyCharMutation(c=>{ if(isImageObject(c)) c.name=e.target.value||'사진'; else c.text=e.target.value||' '; }));
@@ -1695,10 +1774,10 @@
     $('charY').addEventListener('input',e=>applyCharMutation(c=>c.y=Number(e.target.value)||0,false));
     $('charAngle').addEventListener('input',e=>applyCharMutation(c=>c.angle=Number(e.target.value)||0,false));
     $('charScale').addEventListener('input',e=>applyCharMutation(c=>c.scale=clamp(Number(e.target.value)||1,.05,20),false));
-    $('charScaleX').addEventListener('input',e=>applyCharMutation(c=>c.scaleX=clamp(Number(e.target.value)||1,.05,20),false));
-    $('charScaleY').addEventListener('input',e=>applyCharMutation(c=>c.scaleY=clamp(Number(e.target.value)||1,.05,20),false));
-    $('charSkewX').addEventListener('input',e=>applyCharMutation(c=>c.skewX=clamp(Number(e.target.value)||0,-89,89),false));
-    $('charSkewY').addEventListener('input',e=>applyCharMutation(c=>c.skewY=clamp(Number(e.target.value)||0,-89,89),false));
+    $('charScaleX').addEventListener('change',e=>applyGuardedObjectTransform('scaleX',clamp(Number(e.target.value)||1,.05,20)));
+    $('charScaleY').addEventListener('change',e=>applyGuardedObjectTransform('scaleY',clamp(Number(e.target.value)||1,.05,20)));
+    $('charSkewX').addEventListener('change',e=>applyGuardedObjectTransform('skewX',clamp(Number(e.target.value)||0,-89,89)));
+    $('charSkewY').addEventListener('change',e=>applyGuardedObjectTransform('skewY',clamp(Number(e.target.value)||0,-89,89)));
   }
 
   function bindEvents(){
@@ -1710,7 +1789,7 @@
     $('fontManagerSearch').addEventListener('input',()=>renderFontManager(true));
     $('showMoreFontsBtn').addEventListener('click',()=>{ state.fontUi.managerLimit=(state.fontUi.managerLimit||60)+60; renderFontManager(); });
     $('refreshSavedFontListBtn').addEventListener('click',()=>refreshSavedFontLibrary());
-    $('fontSelect').addEventListener('change',async()=>{const name=$('fontSelect').value; await applyFontToAllTextLayers(name);});$('makeHarmonyBtn').addEventListener('click',()=>{const h=normalizeHex($('harmonyBaseHex').value,$('harmonyBaseColor').value);$('harmonyBaseHex').value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);});$('harmonyBaseColor').addEventListener('input',e=>{$('harmonyBaseHex').value=normalizeHex(e.target.value);renderHarmony(makeHarmony(e.target.value));setEyedropperSample(e.target.value);});$('harmonyBaseHex').addEventListener('change',e=>{const h=normalizeHex(e.target.value);e.target.value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);}); $('applyDirectHexBtn').addEventListener('click',applyDirectHex); $('copyDirectHexBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('directHexInput').value,state.eyedropper.sample||'#9389DE'); $('directHexInput').value=hex; navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('directHexInput').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('eyedropperHex').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('applyEyedropperBtn').addEventListener('click',()=>applyColorToActive($('eyedropperHex').value)); $('copyEyedropperBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('eyedropperHex').value,state.eyedropper.sample||'#9389DE'); navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('eyedropperImageInput').addEventListener('change',async e=>{ try{ await loadEyedropperImage(e.target.files?.[0]); toast('예시 사진을 불러왔습니다.'); }catch(err){ console.error(err); toast('예시 사진을 불러오지 못했습니다.'); drawEyedropperPlaceholder(); } e.target.value=''; }); $('clearEyedropperImageBtn').addEventListener('click',()=>{ drawEyedropperPlaceholder(); toast('예시 사진을 지웠습니다.'); }); const eyeCanvas=$('eyedropperCanvas'); let eyeDown=false; eyeCanvas.addEventListener('pointerdown',e=>{ eyeDown=true; sampleEyedropperAtEvent(e); }); window.addEventListener('pointerup',()=>{ eyeDown=false; }); eyeCanvas.addEventListener('pointermove',e=>{ if(eyeDown) sampleEyedropperAtEvent(e); }); eyeCanvas.addEventListener('click',sampleEyedropperAtEvent);
+    $('fontSelect').addEventListener('change',async()=>{const name=$('fontSelect').value; await applyFontToAllTextLayers(name); updateFontTransformUI();}); $('fontTransformPolicy').addEventListener('change',e=>{ const name=activeChar()&&!isImageObject(activeChar())?activeChar().fontFamily:$('fontSelect').value; setFontTransformPolicy(name,e.target.value); }); $('applyFontTransformBtn').addEventListener('click',applyFontTransform); $('resetFontTransformBtn').addEventListener('click',resetFontTransform); $('fontTransformScope').addEventListener('change',updateFontTransformUI);$('makeHarmonyBtn').addEventListener('click',()=>{const h=normalizeHex($('harmonyBaseHex').value,$('harmonyBaseColor').value);$('harmonyBaseHex').value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);});$('harmonyBaseColor').addEventListener('input',e=>{$('harmonyBaseHex').value=normalizeHex(e.target.value);renderHarmony(makeHarmony(e.target.value));setEyedropperSample(e.target.value);});$('harmonyBaseHex').addEventListener('change',e=>{const h=normalizeHex(e.target.value);e.target.value=h;$('harmonyBaseColor').value=h;renderHarmony(makeHarmony(h));setEyedropperSample(h);}); $('applyDirectHexBtn').addEventListener('click',applyDirectHex); $('copyDirectHexBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('directHexInput').value,state.eyedropper.sample||'#9389DE'); $('directHexInput').value=hex; navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('directHexInput').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('eyedropperHex').addEventListener('change',e=>{ const hex=normalizeHexInput(e.target.value,state.eyedropper.sample||'#9389DE'); e.target.value=hex; setEyedropperSample(hex); }); $('applyEyedropperBtn').addEventListener('click',()=>applyColorToActive($('eyedropperHex').value)); $('copyEyedropperBtn').addEventListener('click',()=>{ const hex=normalizeHexInput($('eyedropperHex').value,state.eyedropper.sample||'#9389DE'); navigator.clipboard?.writeText(hex).then(()=>toast(`${hex} 색코드를 복사했습니다.`)).catch(()=>toast('색코드를 복사했습니다.')); }); $('eyedropperImageInput').addEventListener('change',async e=>{ try{ await loadEyedropperImage(e.target.files?.[0]); toast('예시 사진을 불러왔습니다.'); }catch(err){ console.error(err); toast('예시 사진을 불러오지 못했습니다.'); drawEyedropperPlaceholder(); } e.target.value=''; }); $('clearEyedropperImageBtn').addEventListener('click',()=>{ drawEyedropperPlaceholder(); toast('예시 사진을 지웠습니다.'); }); const eyeCanvas=$('eyedropperCanvas'); let eyeDown=false; eyeCanvas.addEventListener('pointerdown',e=>{ eyeDown=true; sampleEyedropperAtEvent(e); }); window.addEventListener('pointerup',()=>{ eyeDown=false; }); eyeCanvas.addEventListener('pointermove',e=>{ if(eyeDown) sampleEyedropperAtEvent(e); }); eyeCanvas.addEventListener('click',sampleEyedropperAtEvent);
     $('addGradientStopBtn').addEventListener('click',addGradientStop);document.querySelectorAll('.gradient-preset').forEach(b=>b.addEventListener('click',()=>applyGradientPreset(b.dataset.preset)));
     $('addStrokeBtn').addEventListener('click',addStroke);$('addInnerShadowBtn').addEventListener('click',addInnerShadow);$('addOuterShadowBtn').addEventListener('click',addOuterShadow);$('makeGroupBtn').addEventListener('click',makeGroup);$('ungroupBtn').addEventListener('click',ungroup);$('toggleGroupLinkBtn').addEventListener('click',toggleGroupLink);$('groupEffectToggle').addEventListener('change',e=>{state.groupEffectEdit=e.target.checked;updateInspector();pushHistory();});if($('groupMoveToggle')) $('groupMoveToggle').addEventListener('change',e=>state.groupMove=e.target.checked);$('copyStyleBtn').addEventListener('click',copyStyle);$('pasteStyleBtn').addEventListener('click',pasteStyle);
     $('saveStrokePresetBtn').addEventListener('click',()=>saveEffectPreset('stroke'));$('applyStrokePresetBtn').addEventListener('click',()=>applyEffectPreset('stroke'));$('deleteStrokePresetBtn').addEventListener('click',()=>deleteEffectPreset('stroke'));
@@ -1745,6 +1824,6 @@
     bindInspector();
   }
 
-  async function boot(){loadEffectPresets();loadPaintPresets();initFonts();renderPalettes();renderHarmony(makeHarmony('#9389DE'));renderAllEffectPresetControls();renderPaintPresetControls();bindEvents();resizeDisplay();drawEyedropperPlaceholder();setEyedropperSample(state.eyedropper.sample||'#9389DE'); if(state.eyedropper.imageDataUrl){ try{ await loadEyedropperDataUrl(state.eyedropper.imageDataUrl,'복원된 예시 사진'); }catch(_){ drawEyedropperPlaceholder(); } } pushHistory();updateAll();await restoreSavedFonts();updateAll();}
+  async function boot(){loadEffectPresets();loadPaintPresets();loadFontTransformPolicies();initFonts();renderPalettes();renderHarmony(makeHarmony('#9389DE'));renderAllEffectPresetControls();renderPaintPresetControls();bindEvents();resizeDisplay();drawEyedropperPlaceholder();setEyedropperSample(state.eyedropper.sample||'#9389DE'); if(state.eyedropper.imageDataUrl){ try{ await loadEyedropperDataUrl(state.eyedropper.imageDataUrl,'복원된 예시 사진'); }catch(_){ drawEyedropperPlaceholder(); } } pushHistory();updateAll();await restoreSavedFonts();updateAll();}
   boot();
 })();
