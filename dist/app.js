@@ -560,7 +560,68 @@
     return img;
   }
   function imageLogicalSize(obj){ const baseW=Math.max(1,Number(obj.imageWidth)||256), baseH=Math.max(1,Number(obj.imageHeight)||256); return {w:baseW,h:baseH}; }
-  function renderImageSurface(obj,quality=1.2){ const {w:logicalW,h:logicalH}=imageLogicalSize(obj); const maxLogical=Math.max(logicalW,logicalH); const baseCap=state.performance.exporting?3072:(isDraftPreview()?640:1280); const qualityCap=Math.max(512,Math.min(baseCap,Math.round(768*Math.max(.7,Number(quality)||1)))); const rasterScale=Math.min(1,qualityCap/Math.max(1,maxLogical)); const rasterW=Math.max(1,Math.ceil(logicalW*rasterScale)), rasterH=Math.max(1,Math.ceil(logicalH*rasterScale)); const key=`image|${obj.id}|${obj.cacheVersion||0}|${rasterW}x${rasterH}`; if(surfaceCache.has(key)) return surfaceCache.get(key); const c=document.createElement('canvas'); c.width=rasterW; c.height=rasterH; const g=c.getContext('2d'); const img=getImageElement(obj); if(img && img.complete && img.naturalWidth){ g.drawImage(img,0,0,rasterW,rasterH); } else { g.fillStyle='rgba(147,137,222,.10)'; g.fillRect(0,0,rasterW,rasterH); g.strokeStyle='rgba(147,137,222,.55)'; g.lineWidth=2; g.strokeRect(1,1,Math.max(1,rasterW-2),Math.max(1,rasterH-2)); g.fillStyle='rgba(58,57,68,.7)'; g.font='700 18px sans-serif'; g.textAlign='center'; g.textBaseline='middle'; g.fillText('IMAGE',rasterW/2,rasterH/2); } return cacheMapSet(surfaceCache,key,{canvas:c,logicalW,logicalH,pad:0},180); }
+  function renderImageSurface(obj,quality=1.2){
+    const {w:baseLogicalW,h:baseLogicalH}=imageLogicalSize(obj);
+    const strokes=(obj.strokes||[]).filter(s=>s.enabled!==false);
+    const outside=strokes.filter(s=>s.position==='outside');
+    const center=strokes.filter(s=>s.position==='center');
+    const inside=strokes.filter(s=>s.position==='inside');
+    const outerShadows=(obj.outerShadows||[]).filter(s=>s.enabled!==false && s.opacity>0);
+    const innerShadows=(obj.innerShadows||[]).filter(s=>s.enabled!==false && s.opacity>0);
+    const strokeExtent=Math.max(0,
+      ...outside.map(s=>(Number(s.width)||0)*2+4),
+      ...center.map(s=>(Number(s.width)||0)+4),
+      ...inside.map(s=>(Number(s.width)||0)+2)
+    );
+    const outerExtent=Math.max(0,...outerShadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.spread)||0)+(Number(s.size)||0)*2+4));
+    const innerExtent=Math.max(0,...innerShadows.map(s=>Math.abs(Number(s.distance)||0)+(Number(s.size)||0)+4));
+    const pad=Math.ceil(Math.max(2,strokeExtent,outerExtent,innerExtent*.25));
+    const logicalW=baseLogicalW+pad*2, logicalH=baseLogicalH+pad*2;
+    const maxLogical=Math.max(baseLogicalW,baseLogicalH);
+    const baseCap=state.performance.exporting?3072:(isDraftPreview()?640:1280);
+    const qualityCap=Math.max(512,Math.min(baseCap,Math.round(768*Math.max(.7,Number(quality)||1))));
+    const rasterScale=Math.min(1,qualityCap/Math.max(1,maxLogical));
+    const rasterW=Math.max(1,Math.ceil(logicalW*rasterScale)), rasterH=Math.max(1,Math.ceil(logicalH*rasterScale));
+    const contentW=Math.max(1,Math.ceil(baseLogicalW*rasterScale)), contentH=Math.max(1,Math.ceil(baseLogicalH*rasterScale));
+    const offX=Math.round(pad*rasterScale), offY=Math.round(pad*rasterScale);
+    const key=`imagefx|${obj.id}|${obj.cacheVersion||0}|${rasterW}x${rasterH}`;
+    if(surfaceCache.has(key)) return surfaceCache.get(key);
+
+    const c=document.createElement('canvas'); c.width=rasterW; c.height=rasterH; const g=c.getContext('2d');
+    const mask=document.createElement('canvas'); mask.width=rasterW; mask.height=rasterH; const mg=mask.getContext('2d');
+    const img=getImageElement(obj);
+    if(img && img.complete && img.naturalWidth){
+      mg.drawImage(img,offX,offY,contentW,contentH);
+    } else {
+      mg.fillStyle='rgba(255,255,255,1)'; mg.fillRect(offX,offY,contentW,contentH);
+    }
+
+    if(outerShadows.length){
+      for(let i=outerShadows.length-1;i>=0;i--){
+        const s=outerShadows[i], scaled={...s,distance:(Number(s.distance)||0)*rasterScale,spread:(Number(s.spread)||0)*rasterScale,size:(Number(s.size)||0)*rasterScale};
+        const layer=outerShadowLayer(mask,scaled);
+        g.save(); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore();
+      }
+    }
+    for(let i=outside.length-1;i>=0;i--){ const s=outside[i]; const layer=dilatedMask(mask,Math.max(.1,(Number(s.width)||0)*rasterScale*2),s.color,s.opacity,'outside'); g.save(); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); }
+
+    if(img && img.complete && img.naturalWidth){
+      g.drawImage(img,offX,offY,contentW,contentH);
+    } else {
+      g.fillStyle='rgba(147,137,222,.10)'; g.fillRect(offX,offY,contentW,contentH); g.strokeStyle='rgba(147,137,222,.55)'; g.lineWidth=2; g.strokeRect(offX+1,offY+1,Math.max(1,contentW-2),Math.max(1,contentH-2)); g.fillStyle='rgba(58,57,68,.7)'; g.font='700 18px sans-serif'; g.textAlign='center'; g.textBaseline='middle'; g.fillText('IMAGE',offX+contentW/2,offY+contentH/2);
+    }
+
+    for(let i=center.length-1;i>=0;i--){ const s=center[i]; const layer=dilatedMask(mask,Math.max(.1,(Number(s.width)||0)*rasterScale),s.color,s.opacity,'center'); g.save(); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); }
+    for(let i=inside.length-1;i>=0;i--){ const s=inside[i]; const layer=dilatedMask(mask,Math.max(.1,(Number(s.width)||0)*rasterScale*2),s.color,s.opacity,'inside'); g.save(); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore(); }
+    if(innerShadows.length){
+      for(const s of innerShadows){
+        const scaled={...s,distance:(Number(s.distance)||0)*rasterScale,size:(Number(s.size)||0)*rasterScale};
+        const layer=groupInnerShadowLayer(mask,scaled);
+        g.save(); g.globalCompositeOperation=blendToCanvas(s.blend); g.drawImage(layer,0,0); g.restore();
+      }
+    }
+    return cacheMapSet(surfaceCache,key,{canvas:c,logicalW,logicalH,pad},180);
+  }
 
   function applyCharTransform(targetCtx,ch){
     const sx=(ch.scale||1)*(ch.scaleX||1), sy=(ch.scale||1)*(ch.scaleY||1), kx=Math.tan((ch.skewX||0)*Math.PI/180), ky=Math.tan((ch.skewY||0)*Math.PI/180);
@@ -1627,7 +1688,7 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.8.1',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
+  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.8.2',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:historyChars(),groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,groupEffectEdit:state.groupEffectEdit,eyedropper:{sample:state.eyedropper.sample}});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>50)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
