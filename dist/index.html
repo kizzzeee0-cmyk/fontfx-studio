@@ -7,7 +7,7 @@
   <title>FontFX Studio 1.9.1 Web</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="site.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.10.3" />
+  <link rel="stylesheet" href="styles.css?v=1.11.1" />
 </head>
 <body>
   <header class="topbar">
@@ -153,7 +153,10 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
         </div>
         <div id="stampTypeGrid" class="button-cluster wrap">
           <button type="button" class="ghost small" data-stamp-type="circle">원</button>
-          <button type="button" class="ghost small" data-stamp-type="heart">하트</button>
+          <button type="button" class="ghost small" data-stamp-type="heartBasic">기본 하트</button>
+          <button type="button" class="ghost small" data-stamp-type="heartChubby">통통 하트</button>
+          <button type="button" class="ghost small" data-stamp-type="heartDoodle">낙서 하트</button>
+          <button type="button" class="ghost small" data-stamp-type="heartRibbon">리본 하트</button>
           <button type="button" class="ghost small" data-stamp-type="star">별</button>
           <button type="button" class="ghost small" data-stamp-type="sparkle">반짝</button>
           <button type="button" class="ghost small" data-stamp-type="bubble">방울</button>
@@ -396,6 +399,18 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
 
           <div class="divider"></div>
           <div class="card-title-row"><h3>경사와 엠보스</h3><button id="addBevelBtn" class="primary small">+ 경사 추가</button></div>
+          <div class="effect-preset-box">
+            <div class="preset-save-row">
+              <input id="bevelPresetName" type="text" placeholder="예: 말랑 사탕 엠보스">
+              <button id="saveBevelPresetBtn" class="secondary small">현재 엠보스 저장</button>
+            </div>
+            <div class="preset-load-row">
+              <select id="bevelPresetSelect"><option value="">저장된 엠보스 프리셋 없음</option></select>
+              <button id="applyBevelPresetBtn" class="ghost small">적용</button>
+              <button id="deleteBevelPresetBtn" class="danger small">삭제</button>
+            </div>
+            <p class="hint">스타일 · 기법 · 깊이 · 방향 · 크기 · 부드럽게 · 음영 각도/높이 · 밝은 영역/그림자 모드 · 색상 · 불투명도를 통째로 저장합니다.</p>
+          </div>
           <p class="hint">글자, 스탬프, 장식펜(그리고 사진 레이어)에도 적용할 수 있는 경사/엠보스 효과입니다. 내부 경사 · 매끄럽게 · 깊이 · 방향 · 크기 · 부드럽게 · 각도 · 높이 · 밝은 영역/그림자 모드를 각각 조절할 수 있습니다.</p>
           <div id="bevelList" class="effect-list"></div>
         </div>
@@ -425,6 +440,6 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
   </main>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="app.js?v=1.10.3"></script>
+  <script src="app.js?v=1.11.1"></script>
 </body>
 </html>

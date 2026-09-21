@@ -52,7 +52,7 @@
     groupMove: true,
     groupEffectEdit: true,
     styleClipboard: null,
-    effectPresets: { strokes: [], shadows: [] },
+    effectPresets: { strokes: [], shadows: [], bevels: [] },
     paintPresets: [],
     eyedropper: { sample: '#9389DE', imageDataUrl: null, imageWidth: 0, imageHeight: 0 },
     drawings: [],
@@ -281,28 +281,44 @@
 
   function normalizeEffectPresetLibrary(value){
     const v=value&&typeof value==='object'?value:{};
-    return {strokes:Array.isArray(v.strokes)?v.strokes:[],shadows:Array.isArray(v.shadows)?v.shadows:[]};
+    return {strokes:Array.isArray(v.strokes)?v.strokes:[],shadows:Array.isArray(v.shadows)?v.shadows:[],bevels:Array.isArray(v.bevels)?v.bevels:[]};
   }
   function loadEffectPresets(){
     try{state.effectPresets=normalizeEffectPresetLibrary(JSON.parse(localStorage.getItem(EFFECT_PRESET_STORAGE_KEY)||'{}'));}
-    catch(_){state.effectPresets={strokes:[],shadows:[]};}
+    catch(_){state.effectPresets={strokes:[],shadows:[],bevels:[]};}
   }
   function persistEffectPresets(){
     try{localStorage.setItem(EFFECT_PRESET_STORAGE_KEY,JSON.stringify(state.effectPresets));}
     catch(_){toast('브라우저 저장공간에 프리셋을 저장하지 못했습니다.');}
   }
-  function effectPresetBucket(type){return type==='stroke'?state.effectPresets.strokes:state.effectPresets.shadows;}
-  function effectArrayOf(target,type){return type==='stroke'?(target.strokes||[]):(target.innerShadows||[]);}
+  function effectPresetBucket(type){
+    if(type==='stroke') return state.effectPresets.strokes;
+    if(type==='shadow') return state.effectPresets.shadows;
+    return state.effectPresets.bevels;
+  }
+  function effectArrayOf(target,type){
+    if(type==='stroke') return (target.strokes||[]);
+    if(type==='shadow') return (target.innerShadows||[]);
+    return (target.bevels||[]);
+  }
   function effectPresetSource(type){
     const scope=currentEffectScope(); if(!scope)return null;
     if(scope.type==='group')return scope.group;
     return activeChar();
   }
   function stripEffectIds(items){return deepClone(items||[]).map(item=>{delete item.id;return item;});}
-  function instantiateEffectPreset(type,items){return (items||[]).map(item=>({...deepClone(item),id:uid(type==='stroke'?'stroke':'shadow')}));}
+  function instantiateEffectPreset(type,items){
+    const prefix=type==='stroke'?'stroke':(type==='shadow'?'shadow':'bevel');
+    return (items||[]).map(item=>({...deepClone(item),id:uid(prefix)}));
+  }
+  function effectPresetMeta(type){
+    if(type==='stroke') return {key:'strokes',input:'strokePresetName',select:'strokePresetSelect',empty:'저장된 획 프리셋 없음',choose:'획 프리셋 선택',itemName:'획',prop:'strokes'};
+    if(type==='shadow') return {key:'shadows',input:'shadowPresetName',select:'shadowPresetSelect',empty:'저장된 그림자 프리셋 없음',choose:'그림자 프리셋 선택',itemName:'내부 그림자',prop:'innerShadows'};
+    return {key:'bevels',input:'bevelPresetName',select:'bevelPresetSelect',empty:'저장된 엠보스 프리셋 없음',choose:'엠보스 프리셋 선택',itemName:'경사와 엠보스',prop:'bevels'};
+  }
   function mergeEffectPresets(incoming){
     const inc=normalizeEffectPresetLibrary(incoming);
-    for(const key of ['strokes','shadows']){
+    for(const key of ['strokes','shadows','bevels']){
       for(const preset of inc[key]){
         if(!preset||!preset.name||!Array.isArray(preset.items))continue;
         const bucket=state.effectPresets[key], existing=bucket.find(x=>x.id===preset.id||String(x.name).toLowerCase()===String(preset.name).toLowerCase());
@@ -312,32 +328,32 @@
     persistEffectPresets();renderAllEffectPresetControls();
   }
   function renderEffectPresetControls(type){
-    const isStroke=type==='stroke', select=$(isStroke?'strokePresetSelect':'shadowPresetSelect'); if(!select)return;
+    const meta=effectPresetMeta(type), select=$(meta.select); if(!select)return;
     const previous=select.value, bucket=effectPresetBucket(type); select.innerHTML='';
-    const empty=document.createElement('option');empty.value='';empty.textContent=bucket.length?(isStroke?'획 프리셋 선택':'그림자 프리셋 선택'):(isStroke?'저장된 획 프리셋 없음':'저장된 그림자 프리셋 없음');select.appendChild(empty);
+    const empty=document.createElement('option'); empty.value=''; empty.textContent=bucket.length?meta.choose:meta.empty; select.appendChild(empty);
     bucket.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ko')).forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=`${p.name} · ${p.items.length}개`;select.appendChild(o);});
     if([...select.options].some(o=>o.value===previous))select.value=previous;
   }
-  function renderAllEffectPresetControls(){renderEffectPresetControls('stroke');renderEffectPresetControls('shadow');}
+  function renderAllEffectPresetControls(){renderEffectPresetControls('stroke');renderEffectPresetControls('shadow');renderEffectPresetControls('bevel');}
   function saveEffectPreset(type){
-    const isStroke=type==='stroke', source=effectPresetSource(type); if(!source){toast('먼저 글자 또는 그룹을 선택하세요.');return;}
-    const items=effectArrayOf(source,type); if(!items.length){toast(isStroke?'저장할 획이 없습니다.':'저장할 내부 그림자가 없습니다.');return;}
-    const input=$(isStroke?'strokePresetName':'shadowPresetName'), name=String(input.value||'').trim(); if(!name){toast('프리셋 이름을 입력하세요.');input.focus();return;}
+    const meta=effectPresetMeta(type), source=effectPresetSource(type); if(!source){toast('먼저 글자 또는 그룹을 선택하세요.');return;}
+    const items=effectArrayOf(source,type); if(!items.length){toast(`저장할 ${meta.itemName}이(가) 없습니다.`);return;}
+    const input=$(meta.input), name=String(input.value||'').trim(); if(!name){toast('프리셋 이름을 입력하세요.');input.focus();return;}
     const bucket=effectPresetBucket(type), existing=bucket.find(p=>String(p.name).toLowerCase()===name.toLowerCase());
-    const data={id:existing?.id||uid(isStroke?'strokePreset':'shadowPreset'),name,items:stripEffectIds(items),updatedAt:new Date().toISOString()};
+    const data={id:existing?.id||uid(`${meta.key.slice(0,-1)}Preset`),name,items:stripEffectIds(items),updatedAt:new Date().toISOString()};
     if(existing)Object.assign(existing,data);else bucket.push(data);
-    persistEffectPresets();renderEffectPresetControls(type);$(isStroke?'strokePresetSelect':'shadowPresetSelect').value=data.id;toast(`“${name}” ${isStroke?'획':'내부 그림자'} 프리셋을 ${existing?'덮어썼습니다':'저장했습니다'}.`);
+    persistEffectPresets();renderEffectPresetControls(type);$(meta.select).value=data.id;toast(`“${name}” ${meta.itemName} 프리셋을 ${existing?'덮어썼습니다':'저장했습니다'}.`);
   }
   function applyEffectPreset(type){
-    const isStroke=type==='stroke', select=$(isStroke?'strokePresetSelect':'shadowPresetSelect'), preset=effectPresetBucket(type).find(p=>p.id===select.value); if(!preset){toast('적용할 프리셋을 선택하세요.');return;}
+    const meta=effectPresetMeta(type), select=$(meta.select), preset=effectPresetBucket(type).find(p=>p.id===select.value); if(!preset){toast('적용할 프리셋을 선택하세요.');return;}
     const scope=currentEffectScope();if(!scope){toast('먼저 글자 또는 그룹을 선택하세요.');return;}
-    const base=instantiateEffectPreset(type,preset.items), prop=isStroke?'strokes':'innerShadows';
+    const base=instantiateEffectPreset(type,preset.items), prop=meta.prop;
     if(scope.type==='group'){scope.group[prop]=deepClone(base);}else{scope.chars.forEach(ch=>{ch[prop]=deepClone(base);markDirty(ch);});}
-    groupEffectCache.clear();updateInspector();render();pushHistory();toast(`“${preset.name}” 프리셋을 적용했습니다.`);
+    groupEffectCache.clear();updateInspector();render();pushHistory();toast(`“${preset.name}” ${meta.itemName} 프리셋을 적용했습니다.`);
   }
   function deleteEffectPreset(type){
-    const isStroke=type==='stroke', select=$(isStroke?'strokePresetSelect':'shadowPresetSelect'), bucket=effectPresetBucket(type), ix=bucket.findIndex(p=>p.id===select.value); if(ix<0){toast('삭제할 프리셋을 선택하세요.');return;}
-    const name=bucket[ix].name;bucket.splice(ix,1);persistEffectPresets();renderEffectPresetControls(type);toast(`“${name}” 프리셋을 삭제했습니다.`);
+    const meta=effectPresetMeta(type), select=$(meta.select), bucket=effectPresetBucket(type), ix=bucket.findIndex(p=>p.id===select.value); if(ix<0){toast('삭제할 프리셋을 선택하세요.');return;}
+    const name=bucket[ix].name;bucket.splice(ix,1);persistEffectPresets();renderEffectPresetControls(type);toast(`“${name}” ${meta.itemName} 프리셋을 삭제했습니다.`);
   }
   function normalizePaintPresetLibrary(value){ return Array.isArray(value)?value:[]; }
   function loadPaintPresets(){ try{state.paintPresets=normalizePaintPresetLibrary(JSON.parse(localStorage.getItem(PAINT_PRESET_STORAGE_KEY)||'[]'));} catch(_){ state.paintPresets=[]; } }
@@ -486,19 +502,37 @@
   }
 
 
-  function stampShapeName(type){ return ({circle:'원',heart:'하트',star:'별',sparkle:'반짝',bubble:'방울',flower:'꽃'}[type]||'스탬프'); }
+  function stampShapeName(type){ return ({circle:'원',heart:'기본 하트',heartBasic:'기본 하트',heartChubby:'통통 하트',heartDoodle:'낙서 하트',heartRibbon:'리본 하트',star:'별',sparkle:'반짝',bubble:'방울',flower:'꽃'}[type]||'스탬프'); }
+  function mapHeartPoint(cx,cy,r,nx,ny){ return {x:cx+((nx-50)/50)*r,y:cy+((ny-50)/50)*r}; }
+  function traceHeartVariant(g,cx,cy,r,variant){
+    const defs={
+      basic:{start:[50,88], curves:[[18,62,10,34,24,20],[36,8,48,18,50,30],[52,18,64,8,76,20],[90,34,82,62,50,88]]},
+      chubby:{start:[50,84], curves:[[12,60,8,30,24,18],[40,3,49,18,50,29],[51,18,60,3,76,18],[92,30,88,60,50,84]]},
+      doodle:{start:[50,87], curves:[[16,66,12,38,24,23],[34,12,46,17,50,31],[54,17,66,12,78,24],[89,38,84,65,50,87]]},
+      ribbon:{start:[50,86], curves:[[17,63,9,33,22,21],[30,13,42,17,50,29],[58,17,70,13,78,21],[91,33,83,63,50,86]]}
+    };
+    const d=defs[variant]||defs.basic;
+    const sp=mapHeartPoint(cx,cy,r,d.start[0],d.start[1]);
+    g.moveTo(sp.x,sp.y);
+    for(const seg of d.curves){
+      const c1=mapHeartPoint(cx,cy,r,seg[0],seg[1]);
+      const c2=mapHeartPoint(cx,cy,r,seg[2],seg[3]);
+      const ep=mapHeartPoint(cx,cy,r,seg[4],seg[5]);
+      g.bezierCurveTo(c1.x,c1.y,c2.x,c2.y,ep.x,ep.y);
+    }
+    g.closePath();
+  }
   function drawStampShape(g,type,cx,cy,size){
     const r=size/2;
     g.beginPath();
-    if(type==='heart'){
-      const topY=cy-r*0.52;
-      const bottomY=cy+r*0.62;
-      g.moveTo(cx, bottomY);
-      g.bezierCurveTo(cx-r*0.88, cy+r*0.08, cx-r*1.02, cy-r*0.54, cx-r*0.42, topY);
-      g.bezierCurveTo(cx-r*0.12, cy-r*0.82, cx-r*0.01, cy-r*0.54, cx, cy-r*0.34);
-      g.bezierCurveTo(cx+r*0.01, cy-r*0.54, cx+r*0.12, cy-r*0.82, cx+r*0.42, topY);
-      g.bezierCurveTo(cx+r*1.02, cy-r*0.54, cx+r*0.88, cy+r*0.08, cx, bottomY);
-      g.closePath();
+    if(type==='heart' || type==='heartBasic'){
+      traceHeartVariant(g,cx,cy,r,'basic');
+    }else if(type==='heartChubby'){
+      traceHeartVariant(g,cx,cy,r,'chubby');
+    }else if(type==='heartDoodle'){
+      traceHeartVariant(g,cx,cy,r,'doodle');
+    }else if(type==='heartRibbon'){
+      traceHeartVariant(g,cx,cy,r,'ribbon');
     }else if(type==='star'){
       const spikes=5, outer=r, inner=r*0.48;
       for(let i=0;i<spikes*2;i++){
@@ -976,8 +1010,8 @@
     const dx=Math.cos(angle)*dist, dy=Math.sin(angle)*dist;
     const feather=Math.max(0.1,size*0.38 + (Number(effect.soften)||0));
     const depth=Math.max(1,Number(effect.depth)||100) * altitudeFactor;
-    const hi=maskEdgeLayer(maskCanvas,{dx:-dx,dy:-dy,feather,soften:Number(effect.soften)||0,color:effect.highlightColor||'#FFFFFF',opacity:(Number(effect.highlightOpacity)||0),depth:depth/100});
-    const sh=maskEdgeLayer(maskCanvas,{dx:dx,dy:dy,feather,soften:Number(effect.soften)||0,color:effect.shadowColor||'#000000',opacity:(Number(effect.shadowOpacity)||0),depth:depth/100});
+    const hi=maskEdgeLayer(maskCanvas,{dx:-dx,dy:-dy,feather,soften:Number(effect.soften)||0,color:effect.highlightColor||'#FFFFFF',opacity:(Number(effect.highlightOpacity)||0),depth:depth});
+    const sh=maskEdgeLayer(maskCanvas,{dx:dx,dy:dy,feather,soften:Number(effect.soften)||0,color:effect.shadowColor||'#000000',opacity:(Number(effect.shadowOpacity)||0),depth:depth});
     const layers=[];
     if(hi) layers.push({canvas:hi,blend:blendToCanvas(effect.highlightBlend||'screen')});
     if(sh) layers.push({canvas:sh,blend:blendToCanvas(effect.shadowBlend||'multiply')});
@@ -1980,7 +2014,7 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.10.3',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),stampTool:deepClone(state.stampTool),decorTool:deepClone(state.decorTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
+  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.11.1',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),stampTool:deepClone(state.stampTool),decorTool:deepClone(state.decorTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:historyChars(),groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,stampTool:state.stampTool,decorTool:state.decorTool,groupEffectEdit:state.groupEffectEdit,eyedropper:{sample:state.eyedropper.sample}});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>50)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
@@ -2148,7 +2182,8 @@
     $('addStrokeBtn').addEventListener('click',addStroke);$('addInnerShadowBtn').addEventListener('click',addInnerShadow);$('addOuterShadowBtn').addEventListener('click',addOuterShadow); if($('addBevelBtn')) $('addBevelBtn').addEventListener('click',addBevel);$('makeGroupBtn').addEventListener('click',makeGroup);$('ungroupBtn').addEventListener('click',ungroup);$('toggleGroupLinkBtn').addEventListener('click',toggleGroupLink);$('groupEffectToggle').addEventListener('change',e=>{state.groupEffectEdit=e.target.checked;updateInspector();pushHistory();});if($('groupMoveToggle')) $('groupMoveToggle').addEventListener('change',e=>state.groupMove=e.target.checked);$('copyStyleBtn').addEventListener('click',copyStyle);$('pasteStyleBtn').addEventListener('click',pasteStyle);
     $('saveStrokePresetBtn').addEventListener('click',()=>saveEffectPreset('stroke'));$('applyStrokePresetBtn').addEventListener('click',()=>applyEffectPreset('stroke'));$('deleteStrokePresetBtn').addEventListener('click',()=>deleteEffectPreset('stroke'));
     $('saveShadowPresetBtn').addEventListener('click',()=>saveEffectPreset('shadow'));$('applyShadowPresetBtn').addEventListener('click',()=>applyEffectPreset('shadow'));$('deleteShadowPresetBtn').addEventListener('click',()=>deleteEffectPreset('shadow'));
-    $('strokePresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('stroke');}});$('shadowPresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('shadow');}});
+    $('saveBevelPresetBtn')?.addEventListener('click',()=>saveEffectPreset('bevel'));$('applyBevelPresetBtn')?.addEventListener('click',()=>applyEffectPreset('bevel'));$('deleteBevelPresetBtn')?.addEventListener('click',()=>deleteEffectPreset('bevel'));
+    $('strokePresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('stroke');}});$('shadowPresetName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('shadow');}});$('bevelPresetName')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveEffectPreset('bevel');}});
     $('layerTopBtn').addEventListener('click',()=>moveLayer('top'));$('layerUpBtn').addEventListener('click',()=>moveLayer('up'));$('layerDownBtn').addEventListener('click',()=>moveLayer('down'));$('layerBottomBtn').addEventListener('click',()=>moveLayer('bottom'));
     $('fitBtn').addEventListener('click',fitPreview); $('centerSelectedBtn').addEventListener('click',centerSelected); $('centerXBtn').addEventListener('click',centerSelectedX); $('centerYBtn').addEventListener('click',centerSelectedY); ['drawModeBtn','drawModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setDrawMode(!state.drawTool.enabled);})); ['paintModeBtn','paintModeBtn2'].forEach(id=>$(id).addEventListener('click',()=>{setPaintMode(!state.paintTool.enabled);})); $('stampModeBtn2')?.addEventListener('click',()=>setStampMode(!state.stampTool.enabled)); $('stampBaseSize')?.addEventListener('input',e=>{state.stampTool.size=Number(e.target.value)||96; updateStampToolUI();}); $('stampFillColor')?.addEventListener('input',e=>{state.stampTool.fill=normalizeHex(e.target.value); if($('stampFillHex')) $('stampFillHex').value=state.stampTool.fill; updateStampToolUI();}); $('stampFillHex')?.addEventListener('change',e=>{state.stampTool.fill=normalizeHexInput(e.target.value,state.stampTool.fill||'#FFFFFF'); e.target.value=state.stampTool.fill; if($('stampFillColor')) $('stampFillColor').value=state.stampTool.fill; updateStampToolUI();}); $('stampStrokeColor')?.addEventListener('input',e=>{state.stampTool.strokeColor=normalizeHex(e.target.value); if($('stampStrokeHex')) $('stampStrokeHex').value=state.stampTool.strokeColor; updateStampToolUI();}); $('stampStrokeHex')?.addEventListener('change',e=>{state.stampTool.strokeColor=normalizeHexInput(e.target.value,state.stampTool.strokeColor||'#8FC8FF'); e.target.value=state.stampTool.strokeColor; if($('stampStrokeColor')) $('stampStrokeColor').value=state.stampTool.strokeColor; updateStampToolUI();}); $('stampStrokeWidth')?.addEventListener('input',e=>{state.stampTool.strokeWidth=clamp(Number(e.target.value)||0,0,80); updateStampToolUI();}); document.querySelectorAll('#stampTypeGrid [data-stamp-type]').forEach(btn=>btn.addEventListener('click',()=>{state.stampTool.shape=btn.dataset.stampType||'circle'; setStampMode(true); updateStampToolUI();})); $('decorModeBtn2')?.addEventListener('click',()=>setDecorMode(!state.decorTool.enabled)); $('decorBrushType')?.addEventListener('change',e=>{state.decorTool.brushType=e.target.value||'pen'; updateDecorToolUI();}); $('decorAssistMode')?.addEventListener('change',e=>{state.decorTool.assistMode=e.target.value||'freehand'; updateDecorToolUI();}); $('decorColor')?.addEventListener('input',e=>{state.decorTool.color=normalizeHex(e.target.value); if($('decorColorHex')) $('decorColorHex').value=state.decorTool.color; updateDecorToolUI();}); $('decorColorHex')?.addEventListener('change',e=>{state.decorTool.color=normalizeHexInput(e.target.value,state.decorTool.color||'#FFFFFF'); e.target.value=state.decorTool.color; if($('decorColor')) $('decorColor').value=state.decorTool.color; updateDecorToolUI();}); $('decorOutlineColor')?.addEventListener('input',e=>{state.decorTool.outlineColor=normalizeHex(e.target.value); if($('decorOutlineHex')) $('decorOutlineHex').value=state.decorTool.outlineColor; updateDecorToolUI();}); $('decorOutlineHex')?.addEventListener('change',e=>{state.decorTool.outlineColor=normalizeHexInput(e.target.value,state.decorTool.outlineColor||'#8FC8FF'); e.target.value=state.decorTool.outlineColor; if($('decorOutlineColor')) $('decorOutlineColor').value=state.decorTool.outlineColor; updateDecorToolUI();}); $('decorOutlineWidth')?.addEventListener('input',e=>{state.decorTool.outlineWidth=clamp(Number(e.target.value)||0,0,80); updateDecorToolUI();}); $('decorSize')?.addEventListener('input',e=>{state.decorTool.size=Math.max(1,Number(e.target.value)||14); updateDecorToolUI();}); $('decorStabilize')?.addEventListener('change',e=>{state.decorTool.stabilize=clamp(Number(e.target.value)||0.88,0,0.98); updateDecorToolUI();});
     $('zoomOutBtn').addEventListener('click',()=>zoomBy(1/1.2)); $('zoomInBtn').addEventListener('click',()=>zoomBy(1.2)); $('zoomValueBtn').addEventListener('click',zoomTo100);

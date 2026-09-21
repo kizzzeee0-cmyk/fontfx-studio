@@ -1010,8 +1010,8 @@
     const dx=Math.cos(angle)*dist, dy=Math.sin(angle)*dist;
     const feather=Math.max(0.1,size*0.38 + (Number(effect.soften)||0));
     const depth=Math.max(1,Number(effect.depth)||100) * altitudeFactor;
-    const hi=maskEdgeLayer(maskCanvas,{dx:-dx,dy:-dy,feather,soften:Number(effect.soften)||0,color:effect.highlightColor||'#FFFFFF',opacity:(Number(effect.highlightOpacity)||0),depth:depth/100});
-    const sh=maskEdgeLayer(maskCanvas,{dx:dx,dy:dy,feather,soften:Number(effect.soften)||0,color:effect.shadowColor||'#000000',opacity:(Number(effect.shadowOpacity)||0),depth:depth/100});
+    const hi=maskEdgeLayer(maskCanvas,{dx:-dx,dy:-dy,feather,soften:Number(effect.soften)||0,color:effect.highlightColor||'#FFFFFF',opacity:(Number(effect.highlightOpacity)||0),depth:depth});
+    const sh=maskEdgeLayer(maskCanvas,{dx:dx,dy:dy,feather,soften:Number(effect.soften)||0,color:effect.shadowColor||'#000000',opacity:(Number(effect.shadowOpacity)||0),depth:depth});
     const layers=[];
     if(hi) layers.push({canvas:hi,blend:blendToCanvas(effect.highlightBlend||'screen')});
     if(sh) layers.push({canvas:sh,blend:blendToCanvas(effect.shadowBlend||'multiply')});
@@ -2014,7 +2014,7 @@
 
   function applyCanvasSize(){const w=clamp(Math.round(Number($('canvasWidth').value)||1200),32,8192),h=clamp(Math.round(Number($('canvasHeight').value)||1200),32,8192);state.project.width=w;state.project.height=h;resizeDisplay();pushHistory();toast(`${w}×${h}px 캔버스를 적용했습니다.`);}
 
-  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.11.0',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),stampTool:deepClone(state.stampTool),decorTool:deepClone(state.decorTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
+  function serializable(){state.groups.forEach(ensureGroupDefaults);rememberImageAssets();return {version:'1.11.1',project:deepClone(state.project),chars:deepClone(state.chars),groups:deepClone(state.groups),drawings:deepClone(state.drawings),paintStrokes:deepClone(state.paintStrokes),activePaintId:state.activePaintId,drawTool:deepClone(state.drawTool),paintTool:deepClone(state.paintTool),stampTool:deepClone(state.stampTool),decorTool:deepClone(state.decorTool),paintPresets:deepClone(state.paintPresets),customFonts:state.customFonts.filter(f=>f.type!=='local'),groupEffectEdit:state.groupEffectEdit,effectPresets:deepClone(state.effectPresets),eyedropper:deepClone(state.eyedropper),fontTransformPolicies:deepClone(state.fontTransformPolicies)};}
   function snapshot(){return JSON.stringify({project:state.project,chars:historyChars(),groups:state.groups,drawings:state.drawings,paintStrokes:state.paintStrokes,activePaintId:state.activePaintId,drawTool:state.drawTool,paintTool:state.paintTool,stampTool:state.stampTool,decorTool:state.decorTool,groupEffectEdit:state.groupEffectEdit,eyedropper:{sample:state.eyedropper.sample}});}
   function pushHistory(){if(state.suppressHistory)return;clearTimeout(historyTimer);const s=snapshot();if(state.history[state.historyIndex]===s)return;state.history=state.history.slice(0,state.historyIndex+1);state.history.push(s);if(state.history.length>50)state.history.shift();else state.historyIndex++;updateHistoryButtons();}
   function scheduleHistory(){clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,350);}
