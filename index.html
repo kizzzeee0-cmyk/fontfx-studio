@@ -160,6 +160,7 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
           <button type="button" class="ghost small" data-stamp-type="star">별</button>
           <button type="button" class="ghost small" data-stamp-type="sparkle">반짝</button>
           <button type="button" class="ghost small" data-stamp-type="firework">폭죽</button>
+          <button type="button" class="ghost small" data-stamp-type="curvedDash">휘어진 빛</button>
           <button type="button" class="ghost small" data-stamp-type="bubble">방울</button>
           <button type="button" class="ghost small" data-stamp-type="flower">꽃</button>
         </div>
@@ -343,6 +344,10 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap
           <div class="field-row two">
             <label>기울이기 X°<input id="charSkewX" type="number" min="-89" max="89" step="0.1"></label>
             <label>기울이기 Y°<input id="charSkewY" type="number" min="-89" max="89" step="0.1"></label>
+          </div>
+          <div id="graphicTransformRow" class="field-row two hidden">
+            <button id="flipHorizontalBtn" class="secondary">좌우반전</button>
+            <div id="flipHorizontalStatus" class="hint">현재: 원본 방향</div>
           </div>
           <div class="field-row two">
             <button id="copyStyleBtn" class="ghost">스타일 복사</button>
